@@ -18,13 +18,14 @@ jobs:
           ref: lineage-20.0
 
       - name: Free Up Disk Space
-        uses: jlumbroso/free-disk-space@v5
-        with:
-          tool-cache: true
-          android: true
-          dotnet: true
-          docker-images: false
-          swap-storage: false
+        run: |
+          echo "Freeing up disk space..."
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/dotnet
+          sudo rm -rf /opt/gh
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf /usr/share/swift
+          df -h
 
       - name: Install Build Dependencies
         run: |
