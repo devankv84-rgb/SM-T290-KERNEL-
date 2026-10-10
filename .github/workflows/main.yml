@@ -99,12 +99,14 @@ jobs:
           grep -q "CONFIG_COMPAT=y" out/.config || echo "CONFIG_COMPAT=y" >> out/.config
           grep -q "CONFIG_SYSVIPC_COMPAT=y" out/.config || echo "CONFIG_SYSVIPC_COMPAT=y" >> out/.config
           
-          # Build kernel with explicit host compilers and cross-compilers
+          # Build kernel with explicit cross-assembler and linker overrides
           make -j$(nproc) O=out \
             ARCH=arm64 \
             CC=clang \
             HOSTCC=gcc \
             HOSTCXX=g++ \
+            AS=aarch64-linux-gnu-as \
+            LD=aarch64-linux-gnu-ld \
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi-
