@@ -116,19 +116,18 @@ jobs:
           grep -q "CONFIG_COMPAT=y" out/.config || echo "CONFIG_COMPAT=y" >> out/.config
           grep -q "CONFIG_SYSVIPC_COMPAT=y" out/.config || echo "CONFIG_SYSVIPC_COMPAT=y" >> out/.config
           
-          # Build kernel image
+          # Build kernel image and modules
           make -j$(nproc) O=out \
             ARCH=arm64 \
             CLANG_TRIPLE=aarch64-linux-gnu-
           
-          # Build kernel modules (.ko) to match version magic
           make -j$(nproc) modules O=out \
             ARCH=arm64 \
             CLANG_TRIPLE=aarch64-linux-gnu-
 
-      - name: Package Kernel Output and Modules
+      - name: Package Kernel Output and Vendor Modules
         run: |
-          mkdir -p compiled_output/system/lib/modules
+          mkdir -p compiled_output/vendor
           
           # Locate and copy kernel image
           find kernel-source -name "Image.gz" -exec cp {} compiled_output/ \; || true
@@ -137,17 +136,25 @@ jobs:
           # Locate and copy device tree blobs
           find kernel-source -name "*.dtb" -exec cat {} + > compiled_output/dtb || true
           
-          # Locate and copy all compiled kernel modules (.ko)
-          find kernel-source -name "*.ko" -exec cp {} compiled_output/system/lib/modules/ \; || true
+          # Install modules directly into vendor path using kernel build system to generate modules.dep
+          cd kernel-source/* || cd kernel-source
           
-          # Verify image exists
+          export ARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          
+          make modules_install O=out INSTALL_MOD_PATH="${{ github.workspace }}/compiled_output/vendor"
+          
+          cd ..
+          
+          # Verify file exists
           if [ ! -f "compiled_output/Image.gz" ] && [ ! -f "compiled_output/Image" ]; then
             echo "Error: Compiled kernel image not found anywhere in source tree!"
             exit 1
           fi
           
-          ls -la compiled_output/
-          ls -la compiled_output/system/lib/modules/ | head -n 20
+          echo "Verifying compiled vendor modules and dependencies..."
+          find compiled_output/vendor -name "*.ko" | head -n 10
+          find compiled_output/vendor -name "modules.dep"
 
       - name: Package with AnyKernel3
         run: |
@@ -163,9 +170,9 @@ jobs:
             cp compiled_output/dtb anykernel/
           fi
           
-          # Copy modules structure into AnyKernel3
-          if [ -d "compiled_output/system" ]; then
-            cp -r compiled_output/system anykernel/
+          # Copy vendor modules directory into AnyKernel3 structure
+          if [ -d "compiled_output/vendor" ]; then
+            cp -r compiled_output/vendor anykernel/
           fi
           
           cd anykernel
