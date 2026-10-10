@@ -46,8 +46,16 @@ jobs:
 
       - name: Setup Toolchains
         run: |
-          mkdir -p toolchain
-          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_clang_host_linux-x86_clang-r450784d toolchain/clang || git clone --depth=1 https://gitlab.com/ThankYouMario/android_prebuilts_clang_host_linux-x86_clang-r450784d toolchain/clang
+          mkdir -p toolchain/clang toolchain/gcc64 toolchain/gcc32
+          
+          echo "Downloading Clang toolchain..."
+          wget -O clang.tar.gz "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android13-release/clang-r450784d.tar.gz" || \
+          wget -O clang.tar.gz "https://gitlab.com/ThankYouMario/android_prebuilts_clang_host_linux-x86_clang-r450784d/-/raw/main/clang-r450784d.tar.gz"
+          
+          tar -C toolchain/clang -xzf clang.tar.gz
+          rm clang.tar.gz
+
+          echo "Cloning GCC toolchains..."
           git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 toolchain/gcc64
           git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9 toolchain/gcc32
 
@@ -104,4 +112,3 @@ jobs:
         with:
           name: LOS20-SDM429-Flashable-Zip
           path: LOS20-SDM429-AnyKernel3.zip
-          
