@@ -1,4 +1,4 @@
-name: Build SM-T290 Kernel - NetHunter & rtl88xxau
+name: Build SM-T290 Kernel from Drive (LineageOS 20)
 
 on:
   workflow_dispatch:
@@ -35,10 +35,29 @@ jobs:
       - name: Install Host Dependencies & Cross-Compilers
         run: |
           sudo apt-get update && sudo apt-get install -y \
-            build-essential bc bison flex libssl-dev libncurses5-dev libelf-dev \
-            git wget zip unzip lzop perl rsync kmod device-tree-compiler ccache \
-            python3 python3-pip binutils-aarch64-linux-gnu binutils-arm-linux-gnueabi \
-            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
+            build-essential \
+            bc \
+            bison \
+            flex \
+            libssl-dev \
+            libncurses5-dev \
+            libelf-dev \
+            git \
+            wget \
+            zip \
+            unzip \
+            lzop \
+            perl \
+            rsync \
+            kmod \
+            device-tree-compiler \
+            ccache \
+            python3 \
+            python3-pip \
+            binutils-aarch64-linux-gnu \
+            binutils-arm-linux-gnueabi \
+            gcc-aarch64-linux-gnu \
+            gcc-arm-linux-gnueabi
           
           pip install --upgrade pip
           pip install gdown
@@ -46,24 +65,20 @@ jobs:
       - name: Download Kernel Source Zip from Google Drive
         run: |
           FILE_ID="${{ github.event.inputs.drive_file_id }}"
+          echo "Downloading kernel source zip via gdown..."
           gdown "https://drive.google.com/uc?id=$FILE_ID" -O kernel-source.zip
+          
+          ls -lh kernel-source.zip
+          
           mkdir -p kernel-source
           unzip -q kernel-source.zip -d kernel-source
+          ls -la kernel-source
 
       - name: Clone LineageOS Clang Toolchain
         run: |
           git clone --depth=1 https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b toolchain-clang
 
-      - name: Inject NetHunter Patches & rtl88xxau Driver
-        run: |
-          cd kernel-source/* || cd kernel-source
-          
-          # Clone rtl88xxau driver and integrate into source tree
-          git clone --depth=1 https://github.com/aircrack-ng/rtl88xxau.git drivers/net/wireless/rtl88xxau
-          echo 'obj-$(CONFIG_RTL88XXAU) += rtl88xxau/' >> drivers/net/wireless/Makefile
-          echo 'source "drivers/net/wireless/rtl88xxau/Kconfig"' >> drivers/net/wireless/Kconfig
-
-      - name: Compile Kernel
+      - name: Compile Kernel and Modules
         run: |
           cd kernel-source/* || cd kernel-source
           
@@ -74,6 +89,7 @@ jobs:
           export SUBARCH=arm64
           export KCFLAGS="-w"
           
+          # Export cross-compilation toolchain variables explicitly to environment
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
           export CC=clang
@@ -88,34 +104,52 @@ jobs:
           export STRIP=aarch64-linux-gnu-strip
           
           mkdir -p out
+          
+          # Append custom kernel version suffix (-iam_devu)
           echo "-iam_devu" > localversion
           
+          # Generate Defconfig for lineageos_gtowifi
           make O=out ARCH=arm64 ${{ github.event.inputs.defconfig_name }}
           
-          # Enforce compatibility and NetHunter/rtl88xxau configuration flags
-          echo "Enforcing configuration parameters..."
+          # Enforce CONFIG_COMPAT to support mixed 32/64-bit architecture
+          echo "Enforcing CONFIG_COMPAT parameters..."
           grep -q "CONFIG_COMPAT=y" out/.config || echo "CONFIG_COMPAT=y" >> out/.config
           grep -q "CONFIG_SYSVIPC_COMPAT=y" out/.config || echo "CONFIG_SYSVIPC_COMPAT=y" >> out/.config
-          echo "CONFIG_CFG80211=m" >> out/.config
-          echo "CONFIG_CFG80211_INTERNAL_REGDB=y" >> out/.config
-          echo "CONFIG_MAC80211=m" >> out/.config
-          echo "CONFIG_MAC80211_LEDS=y" >> out/.config
-          echo "CONFIG_RTL88XXAU=m" >> out/.config
-          echo "CONFIG_USB_HID=y" >> out/.config
-          echo "CONFIG_USB_GADGET=y" >> out/.config
           
-          make -j$(nproc) O=out ARCH=arm64 CLANG_TRIPLE=aarch64-linux-gnu-
-          make -j$(nproc) O=out ARCH=arm64 modules
+          # Build kernel image
+          make -j$(nproc) O=out \
+            ARCH=arm64 \
+            CLANG_TRIPLE=aarch64-linux-gnu-
+          
+          # Build kernel modules (.ko) to match version magic
+          make -j$(nproc) modules O=out \
+            ARCH=arm64 \
+            CLANG_TRIPLE=aarch64-linux-gnu-
 
-      - name: Package Kernel & Modules
+      - name: Package Kernel Output and Modules
         run: |
-          mkdir -p compiled_output/modules
+          mkdir -p compiled_output/system/lib/modules
+          
+          # Locate and copy kernel image
           find kernel-source -name "Image.gz" -exec cp {} compiled_output/ \; || true
           find kernel-source -name "Image" -exec cp {} compiled_output/ \; || true
-          find kernel-source -name "*.ko" -exec cp {} compiled_output/modules/ \; || true
+          
+          # Locate and copy device tree blobs
           find kernel-source -name "*.dtb" -exec cat {} + > compiled_output/dtb || true
+          
+          # Locate and copy all compiled kernel modules (.ko)
+          find kernel-source -name "*.ko" -exec cp {} compiled_output/system/lib/modules/ \; || true
+          
+          # Verify image exists
+          if [ ! -f "compiled_output/Image.gz" ] && [ ! -f "compiled_output/Image" ]; then
+            echo "Error: Compiled kernel image not found anywhere in source tree!"
+            exit 1
+          fi
+          
+          ls -la compiled_output/
+          ls -la compiled_output/system/lib/modules/ | head -n 20
 
-      - name: Package with AnyKernel3 & Firmware
+      - name: Package with AnyKernel3
         run: |
           git clone https://github.com/osm0sis/AnyKernel3 -b master anykernel
           
@@ -123,36 +157,31 @@ jobs:
             cp compiled_output/Image.gz anykernel/
           else
             cp compiled_output/Image anykernel/
-          }
+          fi
           
           if [ -f "compiled_output/dtb" ]; then
             cp compiled_output/dtb anykernel/
           fi
           
-          # Copy built modules into AnyKernel3 modules directory if any exist
-          if [ "$(ls -A compiled_output/modules)" ]; then
-            mkdir -p anykernel/modules/system/lib/modules
-            cp compiled_output/modules/*.ko anykernel/modules/system/lib/modules/
+          # Copy modules structure into AnyKernel3
+          if [ -d "compiled_output/system" ]; then
+            cp -r compiled_output/system anykernel/
           fi
-          
-          # Download Realtek firmware binaries for rtl88xxau
-          mkdir -p anykernel/firmware/rtlwifi
-          wget -O anykernel/firmware/rtlwifi/rtl8812aufw.bin https://raw.githubusercontent.com/minimum2scp/firmware-ralink/master/rtlwifi/rtl8812aufw.bin || true
           
           cd anykernel
           sed -i 's/device\.name1=.*/device\.name1 = gtowifi/g' anykernel.sh
           sed -i 's/block=.*/block = \/dev\/block\/bootdevice\/by-name\/boot/g' anykernel.sh
           
           rm -rf .git
-          zip -r9 ../SM-T290-NetHunter-AnyKernel3-iam_devu.zip *
+          zip -r9 ../SM-T290-Lineage20-AnyKernel3-iam_devu.zip *
           cd ..
           
           mkdir -p final_zip
-          mv SM-T290-NetHunter-AnyKernel3-iam_devu.zip final_zip/
+          mv SM-T290-Lineage20-AnyKernel3-iam_devu.zip final_zip/
 
       - name: Upload Flashable Zip Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SM-T290-NetHunter-AnyKernel3-iam_devu
+          name: SM-T290-Lineage20-AnyKernel3-iam_devu
           path: final_zip/*.zip
           
