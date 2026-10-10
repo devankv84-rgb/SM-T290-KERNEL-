@@ -89,6 +89,20 @@ jobs:
           export SUBARCH=arm64
           export KCFLAGS="-w"
           
+          # Export cross-compilation toolchain variables explicitly to environment
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          export CC=clang
+          export HOSTCC=gcc
+          export HOSTCXX=g++
+          export AS=aarch64-linux-gnu-as
+          export LD=aarch64-linux-gnu-ld
+          export AR=aarch64-linux-gnu-ar
+          export NM=aarch64-linux-gnu-nm
+          export OBJCOPY=aarch64-linux-gnu-objcopy
+          export OBJDUMP=aarch64-linux-gnu-objdump
+          export STRIP=aarch64-linux-gnu-strip
+          
           mkdir -p out
           
           # Generate Defconfig for lineageos_gtowifi
@@ -99,17 +113,10 @@ jobs:
           grep -q "CONFIG_COMPAT=y" out/.config || echo "CONFIG_COMPAT=y" >> out/.config
           grep -q "CONFIG_SYSVIPC_COMPAT=y" out/.config || echo "CONFIG_SYSVIPC_COMPAT=y" >> out/.config
           
-          # Build kernel with explicit cross-assembler and linker overrides
+          # Build kernel with inherited environment toolchain variables
           make -j$(nproc) O=out \
             ARCH=arm64 \
-            CC=clang \
-            HOSTCC=gcc \
-            HOSTCXX=g++ \
-            AS=aarch64-linux-gnu-as \
-            LD=aarch64-linux-gnu-ld \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+            CLANG_TRIPLE=aarch64-linux-gnu-
 
       - name: Package Kernel Output
         run: |
