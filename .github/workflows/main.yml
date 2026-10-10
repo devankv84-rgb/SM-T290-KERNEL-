@@ -32,7 +32,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-kernel-ccache-
 
-      - name: Install Host Dependencies & Python Tools
+      - name: Install Host Dependencies & Cross Binutils
         run: |
           sudo apt-get update && sudo apt-get install -y \
             build-essential \
@@ -53,7 +53,9 @@ jobs:
             device-tree-compiler \
             ccache \
             python3 \
-            python3-pip
+            python3-pip \
+            binutils-aarch64-linux-gnu \
+            binutils-arm-linux-gnueabi
           
           pip install --upgrade pip
           pip install gdown
@@ -95,19 +97,18 @@ jobs:
           grep -q "CONFIG_COMPAT=y" out/.config || echo "CONFIG_COMPAT=y" >> out/.config
           grep -q "CONFIG_SYSVIPC_COMPAT=y" out/.config || echo "CONFIG_SYSVIPC_COMPAT=y" >> out/.config
           
-          # Build kernel with Clang and Android cross-compilers
+          # Build kernel with Clang and cross-binutils
           make -j$(nproc) O=out \
             ARCH=arm64 \
             CC=clang \
             CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE=aarch64-linux-android- \
-            CROSS_COMPILE_ARM32=arm-linux-androideabi-
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi-
 
       - name: Package Kernel Output
         run: |
           mkdir -p compiled_output
           
-          # Find and copy the built image
           if [ -f "kernel-source/*/out/arch/arm64/boot/Image.gz" ]; then
             cp kernel-source/*/out/arch/arm64/boot/Image.gz compiled_output/
           elif [ -f "kernel-source/out/arch/arm64/boot/Image.gz" ]; then
@@ -119,7 +120,6 @@ jobs:
             exit 1
           fi
           
-          # Copy Device Tree Blobs if generated
           if [ -d "kernel-source/*/out/arch/arm64/boot/dts" ]; then
             find kernel-source/*/out/arch/arm64/boot/dts -name "*.dtb" -exec cat {} + > compiled_output/dtb || true
           elif [ -d "kernel-source/out/arch/arm64/boot/dts" ]; then
