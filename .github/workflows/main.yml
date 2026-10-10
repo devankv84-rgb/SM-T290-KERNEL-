@@ -1,10 +1,10 @@
-name: Build SM-T290 Kernel from Drive Zip (LineageOS 20)
+name: Build SM-T290 Kernel from Drive (LineageOS 20)
 
 on:
   workflow_dispatch:
     inputs:
       drive_file_id:
-        description: 'Google Drive File ID or Share Link'
+        description: 'Google Drive File ID'
         required: true
         default: '1rc_ZbJjmgLEy37pWvefuRTBX15n0DUqN'
       defconfig_name:
@@ -32,7 +32,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-kernel-ccache-
 
-      - name: Install Host Dependencies
+      - name: Install Host Dependencies & Python Tools
         run: |
           sudo apt-get update && sudo apt-get install -y \
             build-essential \
@@ -52,21 +52,20 @@ jobs:
             kmod \
             device-tree-compiler \
             ccache \
-            python3
+            python3 \
+            python3-pip
+          
+          pip install --upgrade pip
+          pip install gdown
 
       - name: Download Kernel Source Zip from Google Drive
         run: |
           FILE_ID="${{ github.event.inputs.drive_file_id }}"
-          echo "Downloading kernel source zip from Google Drive..."
+          echo "Downloading kernel source zip via gdown..."
+          gdown "https://drive.google.com/uc?id=$FILE_ID" -O kernel-source.zip
           
-          # Handle large files with confirmation token check from Google Drive
-          CONFIRM_URL=$(wget --save-cookies /tmp/cookies.txt --keep-session-cookies --no-check-certificate -qO- "https://docs.google.com/uc?export=download&id=$FILE_ID" | grep -oP 'confirm=[a-zA-Z0-9_]+' || true)
-          
-          if [ -n "$CONFIRM_URL" ]; then
-            wget --load-cookies /tmp/cookies.txt "https://docs.google.com/uc?export=download&confirm=$(echo $CONFIRM_URL | cut -d'=' -f2)&id=$FILE_ID" -O kernel-source.zip
-          else
-            wget --load-cookies /tmp/cookies.txt "https://docs.google.com/uc?export=download&id=$FILE_ID" -O kernel-source.zip
-          fi
+          # Verify file size and existence
+          ls -lh kernel-source.zip
           
           mkdir -p kernel-source
           unzip -q kernel-source.zip -d kernel-source
@@ -78,7 +77,7 @@ jobs:
 
       - name: Compile Kernel
         run: |
-          # Navigate into the extracted source root (handling potential nested folders)
+          # Navigate into the extracted source root automatically
           cd kernel-source/* || cd kernel-source
           
           CLANG_PATH="${{ github.workspace }}/toolchain-clang/clang-r383902b/bin"
@@ -93,7 +92,7 @@ jobs:
           # Generate Defconfig for sdm429
           make O=out ARCH=arm64 ${{ github.event.inputs.defconfig_name }}
           
-          # Enforce CONFIG_COMPAT for mixed 32/64-bit architecture stability
+          # Enforce CONFIG_COMPAT to support the mixed 32/64-bit architecture and avoid bootloops
           echo "Enforcing CONFIG_COMPAT parameters..."
           grep -q "CONFIG_COMPAT=y" out/.config || echo "CONFIG_COMPAT=y" >> out/.config
           grep -q "CONFIG_SYSVIPC_COMPAT=y" out/.config || echo "CONFIG_SYSVIPC_COMPAT=y" >> out/.config
@@ -120,6 +119,13 @@ jobs:
           else
             echo "Error: Compiled kernel image not found!"
             exit 1
+          fi
+          
+          # Copy Device Tree Blobs if generated
+          if [ -d "kernel-source/*/out/arch/arm64/boot/dts" ]; then
+            find kernel-source/*/out/arch/arm64/boot/dts -name "*.dtb" -exec cat {} + > compiled_output/dtb || true
+          elif [ -d "kernel-source/out/arch/arm64/boot/dts" ]; then
+            find kernel-source/out/arch/arm64/boot/dts -name "*.dtb" -exec cat {} + > compiled_output/dtb || true
           fi
 
       - name: Upload Kernel Artifacts
