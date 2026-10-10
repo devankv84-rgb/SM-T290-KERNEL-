@@ -4,8 +4,9 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - lineage-20.0
-      - lineage-20
+      - lineage*
+      - main
+      - master
 
 jobs:
   build-kernel:
@@ -14,8 +15,6 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-        with:
-          ref: lineage-20.0
 
       - name: Free Up Disk Space
         run: |
