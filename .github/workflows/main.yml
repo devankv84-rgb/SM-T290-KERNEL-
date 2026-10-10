@@ -10,7 +10,7 @@ on:
       defconfig_name:
         description: 'Target Defconfig File'
         required: true
-        default: 'sdm429_defconfig'
+        default: 'lineageos_gtowifi_defconfig'
 
 jobs:
   build-kernel:
@@ -89,7 +89,7 @@ jobs:
           
           mkdir -p out
           
-          # Generate Defconfig for sdm429
+          # Generate Defconfig for lineageos_gtowifi
           make O=out ARCH=arm64 ${{ github.event.inputs.defconfig_name }}
           
           # Enforce CONFIG_COMPAT to support the mixed 32/64-bit architecture and avoid bootloops
@@ -97,10 +97,12 @@ jobs:
           grep -q "CONFIG_COMPAT=y" out/.config || echo "CONFIG_COMPAT=y" >> out/.config
           grep -q "CONFIG_SYSVIPC_COMPAT=y" out/.config || echo "CONFIG_SYSVIPC_COMPAT=y" >> out/.config
           
-          # Build kernel with Clang and cross-binutils
+          # Build kernel with explicit host compilers and cross-binutils
           make -j$(nproc) O=out \
             ARCH=arm64 \
             CC=clang \
+            HOSTCC=gcc \
+            HOSTCXX=g++ \
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi-
