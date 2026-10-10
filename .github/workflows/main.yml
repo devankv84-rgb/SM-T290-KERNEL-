@@ -32,7 +32,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-kernel-ccache-
 
-      - name: Install Host Dependencies & Cross Binutils
+      - name: Install Host Dependencies & Cross-Compilers
         run: |
           sudo apt-get update && sudo apt-get install -y \
             build-essential \
@@ -55,7 +55,9 @@ jobs:
             python3 \
             python3-pip \
             binutils-aarch64-linux-gnu \
-            binutils-arm-linux-gnueabi
+            binutils-arm-linux-gnueabi \
+            gcc-aarch64-linux-gnu \
+            gcc-arm-linux-gnueabi
           
           pip install --upgrade pip
           pip install gdown
@@ -97,7 +99,7 @@ jobs:
           grep -q "CONFIG_COMPAT=y" out/.config || echo "CONFIG_COMPAT=y" >> out/.config
           grep -q "CONFIG_SYSVIPC_COMPAT=y" out/.config || echo "CONFIG_SYSVIPC_COMPAT=y" >> out/.config
           
-          # Build kernel with explicit host compilers and cross-binutils
+          # Build kernel with explicit host compilers and cross-compilers
           make -j$(nproc) O=out \
             ARCH=arm64 \
             CC=clang \
