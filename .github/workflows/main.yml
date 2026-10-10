@@ -64,23 +64,21 @@ jobs:
           echo "Downloading kernel source zip via gdown..."
           gdown "https://drive.google.com/uc?id=$FILE_ID" -O kernel-source.zip
           
-          # Verify file size and existence
           ls -lh kernel-source.zip
           
           mkdir -p kernel-source
           unzip -q kernel-source.zip -d kernel-source
           ls -la kernel-source
 
-      - name: Clone Toolchain (AOSP Clang)
+      - name: Clone LineageOS Clang Toolchain
         run: |
-          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/ -b android-11.0_r0.1 toolchain-clang
+          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b toolchain-clang
 
       - name: Compile Kernel
         run: |
-          # Navigate into the extracted source root automatically
           cd kernel-source/* || cd kernel-source
           
-          CLANG_PATH="${{ github.workspace }}/toolchain-clang/clang-r383902b/bin"
+          CLANG_PATH="${{ github.workspace }}/toolchain-clang/bin"
           export PATH="$CLANG_PATH:$PATH"
           
           export ARCH=arm64
@@ -92,7 +90,7 @@ jobs:
           # Generate Defconfig for sdm429
           make O=out ARCH=arm64 ${{ github.event.inputs.defconfig_name }}
           
-          # Enforce CONFIG_COMPAT to support the mixed 32/64-bit architecture and avoid bootloops
+          # Enforce CONFIG_COMPAT for mixed 32/64-bit architecture stability
           echo "Enforcing CONFIG_COMPAT parameters..."
           grep -q "CONFIG_COMPAT=y" out/.config || echo "CONFIG_COMPAT=y" >> out/.config
           grep -q "CONFIG_SYSVIPC_COMPAT=y" out/.config || echo "CONFIG_SYSVIPC_COMPAT=y" >> out/.config
@@ -109,7 +107,6 @@ jobs:
         run: |
           mkdir -p compiled_output
           
-          # Find and copy the built image
           if [ -f "kernel-source/*/out/arch/arm64/boot/Image.gz" ]; then
             cp kernel-source/*/out/arch/arm64/boot/Image.gz compiled_output/
           elif [ -f "kernel-source/out/arch/arm64/boot/Image.gz" ]; then
@@ -121,7 +118,6 @@ jobs:
             exit 1
           fi
           
-          # Copy Device Tree Blobs if generated
           if [ -d "kernel-source/*/out/arch/arm64/boot/dts" ]; then
             find kernel-source/*/out/arch/arm64/boot/dts -name "*.dtb" -exec cat {} + > compiled_output/dtb || true
           elif [ -d "kernel-source/out/arch/arm64/boot/dts" ]; then
