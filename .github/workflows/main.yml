@@ -1,4 +1,3 @@
-
 name: Build SM-T290 Kernel from Drive (LineageOS 20)
 
 on:
@@ -130,6 +129,9 @@ jobs:
           find kernel-source -name "Image.gz" -exec cp {} compiled_output/ \; || true
           find kernel-source -name "Image" -exec cp {} compiled_output/ \; || true
           
+          # Find and copy DTB if available
+          find kernel-source -name "*.dtb" -exec cat {} + > compiled_output/dtb || true
+          
           # Verify file was copied successfully
           if [ ! -f "compiled_output/Image.gz" ] && [ ! -f "compiled_output/Image" ]; then
             echo "Error: Compiled kernel image not found anywhere in source tree!"
@@ -138,9 +140,34 @@ jobs:
           
           ls -la compiled_output/
 
-      - name: Upload Kernel Artifacts
+      - name: Package with AnyKernel3
+        run: |
+          git clone https://github.com/osm0sis/AnyKernel3 -b master anykernel
+          
+          if [ -f "compiled_output/Image.gz" ]; then
+            cp compiled_output/Image.gz anykernel/
+          else
+            cp compiled_output/Image anykernel/
+          fi
+          
+          if [ -f "compiled_output/dtb" ]; then
+            cp compiled_output/dtb anykernel/
+          fi
+          
+          cd anykernel
+          sed -i 's/device\.name1=.*/device\.name1 = gtowifi/g' anykernel.sh
+          sed -i 's/block=.*/block = \/dev\/block\/bootdevice\/by-name\/boot/g' anykernel.sh
+          
+          rm -rf .git
+          zip -r9 ../SM-T290-Lineage20-AnyKernel3-iam_devu.zip *
+          cd ..
+          
+          mkdir -p final_zip
+          mv SM-T290-Lineage20-AnyKernel3-iam_devu.zip final_zip/
+
+      - name: Upload Flashable Zip Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SM-T290-Lineage20-Kernel
-          path: compiled_output/*
+          name: SM-T290-Lineage20-AnyKernel3-iam_devu
+          path: final_zip/*.zip
           
