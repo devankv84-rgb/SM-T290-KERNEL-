@@ -122,22 +122,17 @@ jobs:
         run: |
           mkdir -p compiled_output
           
-          if [ -f "kernel-source/*/out/arch/arm64/boot/Image.gz" ]; then
-            cp kernel-source/*/out/arch/arm64/boot/Image.gz compiled_output/
-          elif [ -f "kernel-source/out/arch/arm64/boot/Image.gz" ]; then
-            cp kernel-source/out/arch/arm64/boot/Image.gz compiled_output/
-          elif [ -f "kernel-source/out/arch/arm64/boot/Image" ]; then
-            cp kernel-source/out/arch/arm64/boot/Image compiled_output/
-          else
-            echo "Error: Compiled kernel image not found!"
+          # Use robust find command to locate and copy kernel image
+          find kernel-source -name "Image.gz" -exec cp {} compiled_output/ \; || true
+          find kernel-source -name "Image" -exec cp {} compiled_output/ \; || true
+          
+          # Verify file was copied successfully
+          if [ ! -f "compiled_output/Image.gz" ] && [ ! -f "compiled_output/Image" ]; then
+            echo "Error: Compiled kernel image not found anywhere in source tree!"
             exit 1
           fi
           
-          if [ -d "kernel-source/*/out/arch/arm64/boot/dts" ]; then
-            find kernel-source/*/out/arch/arm64/boot/dts -name "*.dtb" -exec cat {} + > compiled_output/dtb || true
-          elif [ -d "kernel-source/out/arch/arm64/boot/dts" ]; then
-            find kernel-source/out/arch/arm64/boot/dts -name "*.dtb" -exec cat {} + > compiled_output/dtb || true
-          fi
+          ls -la compiled_output/
 
       - name: Upload Kernel Artifacts
         uses: actions/upload-artifact@v4
