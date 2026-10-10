@@ -1,3 +1,4 @@
+
 name: Build SM-T290 Kernel from Drive (LineageOS 20)
 
 on:
@@ -104,6 +105,9 @@ jobs:
           export STRIP=aarch64-linux-gnu-strip
           
           mkdir -p out
+          
+          # Append custom kernel version suffix (-iam_devu)
+          echo "-iam_devu" > localversion
           
           # Generate Defconfig for lineageos_gtowifi
           make O=out ARCH=arm64 ${{ github.event.inputs.defconfig_name }}
