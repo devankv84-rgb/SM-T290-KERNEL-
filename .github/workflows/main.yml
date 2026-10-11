@@ -78,7 +78,7 @@ jobs:
         run: |
           git clone --depth=1 https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b toolchain-clang
 
-      - name: Compile Kernel
+      - name: Compile Kernel and Install Modules
         run: |
           cd kernel-source/* || cd kernel-source
           
@@ -111,46 +111,25 @@ jobs:
           # Generate Defconfig for lineageos_gtowifi
           make O=out ARCH=arm64 ${{ github.event.inputs.defconfig_name }}
           
-          # Enforce CONFIG_COMPAT to support the mixed 32/64-bit architecture and avoid bootloops
-          echo "Enforcing CONFIG_COMPAT parameters..."
+          # Enforce CONFIG_COMPAT to support mixed 32/64-bit architecture
           grep -q "CONFIG_COMPAT=y" out/.config || echo "CONFIG_COMPAT=y" >> out/.config
           grep -q "CONFIG_SYSVIPC_COMPAT=y" out/.config || echo "CONFIG_SYSVIPC_COMPAT=y" >> out/.config
           
-          # Force Qualcomm Wi-Fi driver as built-in (=y)
-          echo "Forcing CONFIG_QCACLD_WLAN=y..."
-          if grep -q "CONFIG_QCACLD_WLAN" out/.config; then
-            sed -i 's/CONFIG_QCACLD_WLAN=.*/CONFIG_QCACLD_WLAN=y/' out/.config
-          else
-            echo "CONFIG_QCACLD_WLAN=y" >> out/.config
-          fi
-          
-          # Build kernel with inherited environment toolchain variables
+          # Build kernel image
           make -j$(nproc) O=out \
             ARCH=arm64 \
             CLANG_TRIPLE=aarch64-linux-gnu-
-
-      - name: Package Kernel Output
-        run: |
-          mkdir -p compiled_output
           
-          # Use robust find command to locate and copy kernel image
-          find kernel-source -name "Image.gz" -exec cp {} compiled_output/ \; || true
-          find kernel-source -name "Image" -exec cp {} compiled_output/ \; || true
-          
-          # Find and copy DTB if available
-          find kernel-source -name "*.dtb" -exec cat {} + > compiled_output/dtb || true
-          
-          # Verify file was copied successfully
-          if [ ! -f "compiled_output/Image.gz" ] && [ ! -f "compiled_output/Image" ]; then
-            echo "Error: Compiled kernel image not found anywhere in source tree!"
-            exit 1
-          fi
-          
-          ls -la compiled_output/
+          # Compile and install kernel modules into external directory
+          make O=out ARCH=arm64 INSTALL_MOD_PATH=${{ github.workspace }}/mo_out modules_install
 
       - name: Package with AnyKernel3
         run: |
           git clone https://github.com/osm0sis/AnyKernel3 -b master anykernel
+          
+          mkdir -p compiled_output
+          find kernel-source -name "Image.gz" -exec cp {} compiled_output/ \; || true
+          find kernel-source -name "Image" -exec cp {} compiled_output/ \; || true
           
           if [ -f "compiled_output/Image.gz" ]; then
             cp compiled_output/Image.gz anykernel/
@@ -158,11 +137,14 @@ jobs:
             cp compiled_output/Image anykernel/
           fi
           
-          if [ -f "compiled_output/dtb" ]; then
-            cp compiled_output/dtb anykernel/
+          # Copy compiled modules (.ko) into AnyKernel3 module structure
+          if [ -d "mo_out" ]; then
+            mkdir -p anykernel/modules/system/lib/modules/
+            find mo_out -name "*.ko" -exec cp {} anykernel/modules/system/lib/modules/ \;
           fi
           
           cd anykernel
+          sed -i 's/do.modules=.*/do.modules=1/g' anykernel.sh
           sed -i 's/device\.name1=.*/device\.name1 = gtowifi/g' anykernel.sh
           sed -i 's/block=.*/block = \/dev\/block\/bootdevice\/by-name\/boot/g' anykernel.sh
           
