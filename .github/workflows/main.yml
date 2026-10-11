@@ -127,7 +127,6 @@ jobs:
 
       - name: Package Kernel Output and Vendor Modules
         run: |
-          # Return to workspace root directory
           cd ${{ github.workspace }}
           
           mkdir -p compiled_output/vendor
@@ -153,7 +152,6 @@ jobs:
           
           make modules_install O=out INSTALL_MOD_PATH="${{ github.workspace }}/compiled_output/vendor"
           
-          # Return to workspace root
           cd ${{ github.workspace }}
           
           # Verify file exists
@@ -166,10 +164,10 @@ jobs:
           find compiled_output/vendor -name "*.ko" | head -n 10
           find compiled_output/vendor -name "modules.dep"
 
-      - name: Package with AnyKernel3
+      - name: Package with AnyKernel3 (Fast Zip)
         run: |
           cd ${{ github.workspace }}
-          git clone https://github.com/osm0sis/AnyKernel3 -b master anykernel
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3 -b master anykernel
           
           if [ -f "compiled_output/Image.gz" ]; then
             cp compiled_output/Image.gz anykernel/
@@ -190,8 +188,9 @@ jobs:
           sed -i 's/device\.name1=.*/device\.name1 = gtowifi/g' anykernel.sh
           sed -i 's/block=.*/block = \/dev\/block\/bootdevice\/by-name\/boot/g' anykernel.sh
           
+          # Clean git metadata and use fast standard zip compression (-r)
           rm -rf .git
-          zip -r9 ../SM-T290-Lineage20-AnyKernel3-iam_devu.zip *
+          zip -r ../SM-T290-Lineage20-AnyKernel3-iam_devu.zip *
           cd ..
           
           mkdir -p final_zip
