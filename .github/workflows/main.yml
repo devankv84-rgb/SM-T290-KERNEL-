@@ -127,9 +127,12 @@ jobs:
 
       - name: Package Kernel Output and Vendor Modules
         run: |
+          # Return to workspace root directory
+          cd ${{ github.workspace }}
+          
           mkdir -p compiled_output/vendor
           
-          # Locate and copy kernel image
+          # Locate and copy kernel image from workspace root
           find kernel-source -name "Image.gz" -exec cp {} compiled_output/ \; || true
           find kernel-source -name "Image" -exec cp {} compiled_output/ \; || true
           
@@ -137,7 +140,12 @@ jobs:
           find kernel-source -name "*.dtb" -exec cat {} + > compiled_output/dtb || true
           
           # Install modules directly into vendor path using kernel build system
-          cd kernel-source/* || cd kernel-source
+          KERNEL_DIR=$(ls -d kernel-source/* | head -n 1)
+          if [ -z "$KERNEL_DIR" ]; then
+            KERNEL_DIR="kernel-source"
+          fi
+          
+          cd "$KERNEL_DIR"
           
           export ARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
@@ -145,7 +153,8 @@ jobs:
           
           make modules_install O=out INSTALL_MOD_PATH="${{ github.workspace }}/compiled_output/vendor"
           
-          cd ..
+          # Return to workspace root
+          cd ${{ github.workspace }}
           
           # Verify file exists
           if [ ! -f "compiled_output/Image.gz" ] && [ ! -f "compiled_output/Image" ]; then
@@ -159,6 +168,7 @@ jobs:
 
       - name: Package with AnyKernel3
         run: |
+          cd ${{ github.workspace }}
           git clone https://github.com/osm0sis/AnyKernel3 -b master anykernel
           
           if [ -f "compiled_output/Image.gz" ]; then
