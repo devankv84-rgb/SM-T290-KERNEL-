@@ -6,7 +6,7 @@ on:
       defconfig:
         description: "Defconfig name from arch/arm64/configs (check the exact name for SM-T290 / gtowifi)"
         required: true
-        default: "lineageos_gtowifi_defconfig"
+        default: "lineageos-gtowifi_defconfig"
 
 env:
   KERNEL_ID: "1rc_ZbJjmgLEy37pWvefuRTBX15n0DUqN"
@@ -82,24 +82,38 @@ jobs:
           sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/' scripts/dtc/dtc-lexer.lex.c_shipped 2>/dev/null || true
           sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/' scripts/dtc/dtc-lexer.l 2>/dev/null || true
 
+      - name: Locate defconfig and detect architecture
+        working-directory: work/kernel
+        run: |
+          echo "Top-level of source:"; ls
+          echo "Matching defconfigs:"
+          find . -path ./out -prune -o -name "*gto*defconfig" -print
+          DEF="${{ github.event.inputs.defconfig }}"
+          if   [ -f "arch/arm64/configs/$DEF" ]; then echo "KARCH=arm64" >> $GITHUB_ENV
+          elif [ -f "arch/arm/configs/$DEF" ];   then echo "KARCH=arm"   >> $GITHUB_ENV
+          else echo "::error::$DEF not found in arch/arm64/configs or arch/arm/configs (see list above)"; exit 1
+          fi
+
       - name: Build kernel
         working-directory: work/kernel
         run: |
           export PATH="$HOME/clang/bin:$PATH"
-          MAKE_ARGS="O=out ARCH=arm64 SUBARCH=arm64 CC=clang \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            CROSS_COMPILE_ARM32=arm-linux-gnueabi-"
+          if [ "$KARCH" = "arm64" ]; then
+            MAKE_ARGS="O=out ARCH=arm64 SUBARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- \
+              CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi-"
+          else
+            MAKE_ARGS="O=out ARCH=arm SUBARCH=arm CC=clang CLANG_TRIPLE=arm-linux-gnueabi- \
+              CROSS_COMPILE=arm-linux-gnueabi-"
+          fi
           make $MAKE_ARGS "${{ github.event.inputs.defconfig }}"
           make -j"$(nproc)" $MAKE_ARGS 2>&1 | tee build.log
-          ls -lh out/arch/arm64/boot/
+          ls -lh out/arch/$KARCH/boot/
 
       - name: Repack boot.img with new kernel
         working-directory: work
         run: |
-          KIMG=$(ls kernel/out/arch/arm64/boot/Image.gz-dtb \
-                    kernel/out/arch/arm64/boot/Image.gz \
-                    kernel/out/arch/arm64/boot/Image 2>/dev/null | head -n1)
+          B=kernel/out/arch/$KARCH/boot
+          KIMG=$(ls $B/Image.gz-dtb $B/zImage-dtb $B/Image.gz $B/zImage $B/Image 2>/dev/null | head -n1)
           echo "Using kernel image: $KIMG"
           # unpack_bootimg prints the original mkbootimg arguments; swap in our kernel
           ARGS=$(python3 mkbootimg/unpack_bootimg.py --boot_img boot.img --out unpacked --format=mkbootimg \
@@ -115,6 +129,6 @@ jobs:
           name: kernel-build
           path: |
             work/boot-new.img
-            work/kernel/out/arch/arm64/boot/Image*
-            work/kernel/out/arch/arm64/boot/dts/**/*.dtb
+            work/kernel/out/arch/*/boot/*Image*
+            work/kernel/out/arch/*/boot/dts/**/*.dtb
             work/kernel/build.log
