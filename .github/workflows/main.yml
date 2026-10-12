@@ -6,7 +6,7 @@ on:
       defconfig:
         description: "Defconfig name from arch/arm64/configs (check the exact name for SM-T290 / gtowifi)"
         required: true
-        default: "lineageos-gtowifi_defconfig"
+        default: "lineageos_gtowifi_defconfig"
 
 env:
   KERNEL_ID: "1rc_ZbJjmgLEy37pWvefuRTBX15n0DUqN"
