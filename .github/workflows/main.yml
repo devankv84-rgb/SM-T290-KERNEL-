@@ -1,163 +1,120 @@
-name: Build SM-T290 Kernel from Drive (LineageOS 20)
+name: Build Kernel
 
 on:
   workflow_dispatch:
     inputs:
-      drive_file_id:
-        description: 'Google Drive File ID'
+      defconfig:
+        description: "Defconfig name from arch/arm64/configs (check the exact name for SM-T290 / gtowifi)"
         required: true
-        default: '1rc_ZbJjmgLEy37pWvefuRTBX15n0DUqN'
-      defconfig_name:
-        description: 'Target Defconfig File'
-        required: true
-        default: 'lineageos_gtowifi_defconfig'
+        default: "lineageos-gtowifi_defconfig"
+
+env:
+  KERNEL_ID: "1rc_ZbJjmgLEy37pWvefuRTBX15n0DUqN"
+  BOOT_ID: "1TwVfFSZzgjS-pY69xuDpTqV3d4SoDKPa"
+  VENDOR_ID: "1_Q94B21OjNGms04XNdue30Ezqf2vPFix"
 
 jobs:
-  build-kernel:
+  build:
     runs-on: ubuntu-22.04
+    timeout-minutes: 120
+
     steps:
-      - name: Checkout Workflow Repo
-        uses: actions/checkout@v4
-
-      - name: Set Environment Variables
+      - name: Free up disk space
         run: |
-          echo "TZ=UTC" >> $GITHUB_ENV
-          echo "CCACHE_DIR=${{ github.workspace }}/ccache" >> $GITHUB_ENV
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android
+          df -h
 
-      - name: Cache Ccache
-        uses: actions/cache@v4
-        with:
-          path: ccache
-          key: ${{ runner.os }}-kernel-ccache-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-kernel-ccache-
-
-      - name: Install Host Dependencies & Cross-Compilers
+      - name: Install dependencies
         run: |
-          sudo apt-get update && sudo apt-get install -y \
-            build-essential \
-            bc \
-            bison \
-            flex \
-            libssl-dev \
-            libncurses5-dev \
-            libelf-dev \
-            git \
-            wget \
-            zip \
-            unzip \
-            lzop \
-            perl \
-            rsync \
-            kmod \
-            device-tree-compiler \
-            ccache \
-            python3 \
-            python3-pip \
-            binutils-aarch64-linux-gnu \
-            binutils-arm-linux-gnueabi \
-            gcc-aarch64-linux-gnu \
-            gcc-arm-linux-gnueabi
-          
-          pip install --upgrade pip
-          pip install gdown
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential bc bison flex libssl-dev libelf-dev libncurses-dev \
+            cpio zip unzip git lz4 xz-utils zstd ccache device-tree-compiler \
+            python3 python3-pip wget android-sdk-libsparse-utils \
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
+          pip3 install gdown
 
-      - name: Download Kernel Source Zip from Google Drive
+      - name: Download kernel source, boot.img, vendor.img
         run: |
-          FILE_ID="${{ github.event.inputs.drive_file_id }}"
-          echo "Downloading kernel source zip via gdown..."
-          gdown "https://drive.google.com/uc?id=$FILE_ID" -O kernel-source.zip
-          
-          ls -lh kernel-source.zip
-          
-          mkdir -p kernel-source
-          unzip -q kernel-source.zip -d kernel-source
-          ls -la kernel-source
+          mkdir -p work && cd work
+          gdown "https://drive.google.com/uc?id=${KERNEL_ID}" -O kernel_src.archive
+          gdown "https://drive.google.com/uc?id=${BOOT_ID}"   -O boot.img
+          gdown "https://drive.google.com/uc?id=${VENDOR_ID}" -O vendor.img
+          ls -lh
 
-      - name: Clone LineageOS Clang Toolchain
+      - name: Extract kernel source
+        working-directory: work
         run: |
-          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b toolchain-clang
-
-      - name: Compile Kernel and Install Modules
-        run: |
-          cd kernel-source/* || cd kernel-source
-          
-          CLANG_PATH="${{ github.workspace }}/toolchain-clang/bin"
-          export PATH="$CLANG_PATH:$PATH"
-          
-          export ARCH=arm64
-          export SUBARCH=arm64
-          export KCFLAGS="-w"
-          
-          # Export cross-compilation toolchain variables explicitly to environment
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
-          export CC=clang
-          export HOSTCC=gcc
-          export HOSTCXX=g++
-          export AS=aarch64-linux-gnu-as
-          export LD=aarch64-linux-gnu-ld
-          export AR=aarch64-linux-gnu-ar
-          export NM=aarch64-linux-gnu-nm
-          export OBJCOPY=aarch64-linux-gnu-objcopy
-          export OBJDUMP=aarch64-linux-gnu-objdump
-          export STRIP=aarch64-linux-gnu-strip
-          
-          mkdir -p out
-          
-          # Append custom kernel version suffix (-iam_devu)
-          echo "-iam_devu" > localversion
-          
-          # Generate Defconfig for lineageos_gtowifi
-          make O=out ARCH=arm64 ${{ github.event.inputs.defconfig_name }}
-          
-          # Enforce CONFIG_COMPAT to support mixed 32/64-bit architecture
-          grep -q "CONFIG_COMPAT=y" out/.config || echo "CONFIG_COMPAT=y" >> out/.config
-          grep -q "CONFIG_SYSVIPC_COMPAT=y" out/.config || echo "CONFIG_SYSVIPC_COMPAT=y" >> out/.config
-          
-          # Build kernel image
-          make -j$(nproc) O=out \
-            ARCH=arm64 \
-            CLANG_TRIPLE=aarch64-linux-gnu-
-          
-          # Compile and install kernel modules into external staging directory
-          make O=out ARCH=arm64 INSTALL_MOD_PATH=${{ github.workspace }}/mo_out modules_install
-
-      - name: Package with AnyKernel3
-        run: |
-          git clone https://github.com/osm0sis/AnyKernel3 -b master anykernel
-          
-          mkdir -p compiled_output
-          find kernel-source -name "Image.gz" -exec cp {} compiled_output/ \; || true
-          find kernel-source -name "Image" -exec cp {} compiled_output/ \; || true
-          
-          if [ -f "compiled_output/Image.gz" ]; then
-            cp compiled_output/Image.gz anykernel/
-          else
-            cp compiled_output/Image anykernel/
+          mkdir -p kernel
+          case "$(file -b kernel_src.archive)" in
+            Zip*)   unzip -q kernel_src.archive -d kernel ;;
+            gzip*)  tar -xzf kernel_src.archive -C kernel ;;
+            XZ*)    tar -xJf kernel_src.archive -C kernel ;;
+            *)      tar -xf  kernel_src.archive -C kernel ;;
+          esac
+          # If the archive had a single top-level folder, step into it
+          if [ "$(ls -1 kernel | wc -l)" -eq 1 ] && [ -d "kernel/$(ls -1 kernel)" ]; then
+            mv kernel/*/* kernel/ 2>/dev/null || true
+            mv kernel/*/.[!.]* kernel/ 2>/dev/null || true
           fi
-          
-          # Copy compiled modules (.ko) into AnyKernel3 vendor module structure
-          if [ -d "mo_out" ]; then
-            mkdir -p anykernel/modules/vendor/lib/modules/
-            find mo_out -name "*.ko" -exec cp {} anykernel/modules/vendor/lib/modules/ \;
-          fi
-          
-          cd anykernel
-          sed -i 's/do.modules=.*/do.modules=1/g' anykernel.sh
-          sed -i 's/device\.name1=.*/device\.name1 = gtowifi/g' anykernel.sh
-          sed -i 's/block=.*/block = \/dev\/block\/bootdevice\/by-name\/boot/g' anykernel.sh
-          
-          rm -rf .git
-          zip -r9 ../SM-T290-Lineage20-AnyKernel3-iam_devu.zip *
-          cd ..
-          
-          mkdir -p final_zip
-          mv SM-T290-Lineage20-AnyKernel3-iam_devu.zip final_zip/
+          ls kernel | head -30
 
-      - name: Upload Flashable Zip Artifact
+      - name: Inspect boot.img and vendor.img
+        working-directory: work
+        run: |
+          git clone --depth=1 https://android.googlesource.com/platform/system/tools/mkbootimg mkbootimg
+          python3 mkbootimg/unpack_bootimg.py --boot_img boot.img --out unpacked
+          echo "---- Stock kernel version ----"
+          strings unpacked/kernel | grep -m1 "Linux version" || true
+          echo "---- vendor.img ----"
+          file vendor.img
+          # Convert sparse -> raw if needed (useful for extracting vendor modules later)
+          simg2img vendor.img vendor.raw.img 2>/dev/null || cp vendor.img vendor.raw.img
+
+      - name: Get Clang toolchain (works well with 4.9 kernels)
+        run: |
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git "$HOME/clang"
+          "$HOME/clang/bin/clang" --version | head -1
+
+      - name: Patch for modern host GCC (dtc yylloc fix)
+        working-directory: work/kernel
+        run: |
+          sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/' scripts/dtc/dtc-lexer.lex.c_shipped 2>/dev/null || true
+          sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/' scripts/dtc/dtc-lexer.l 2>/dev/null || true
+
+      - name: Build kernel
+        working-directory: work/kernel
+        run: |
+          export PATH="$HOME/clang/bin:$PATH"
+          MAKE_ARGS="O=out ARCH=arm64 SUBARCH=arm64 CC=clang \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi-"
+          make $MAKE_ARGS "${{ github.event.inputs.defconfig }}"
+          make -j"$(nproc)" $MAKE_ARGS 2>&1 | tee build.log
+          ls -lh out/arch/arm64/boot/
+
+      - name: Repack boot.img with new kernel
+        working-directory: work
+        run: |
+          KIMG=$(ls kernel/out/arch/arm64/boot/Image.gz-dtb \
+                    kernel/out/arch/arm64/boot/Image.gz \
+                    kernel/out/arch/arm64/boot/Image 2>/dev/null | head -n1)
+          echo "Using kernel image: $KIMG"
+          # unpack_bootimg prints the original mkbootimg arguments; swap in our kernel
+          ARGS=$(python3 mkbootimg/unpack_bootimg.py --boot_img boot.img --out unpacked --format=mkbootimg \
+                 | sed -E 's# --kernel [^ ]+##')
+          eval python3 mkbootimg/mkbootimg.py --kernel "$KIMG" $ARGS -o boot-new.img
+          # Samsung bootloader expects this trailer on boot images
+          printf 'SEANDROIDENFORCE' >> boot-new.img
+          ls -lh boot-new.img
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: SM-T290-Lineage20-AnyKernel3-iam_devu
-          path: final_zip/*.zip
-          
+          name: kernel-build
+          path: |
+            work/boot-new.img
+            work/kernel/out/arch/arm64/boot/Image*
+            work/kernel/out/arch/arm64/boot/dts/**/*.dtb
+            work/kernel/build.log
