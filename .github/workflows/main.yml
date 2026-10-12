@@ -120,7 +120,7 @@ jobs:
             ARCH=arm64 \
             CLANG_TRIPLE=aarch64-linux-gnu-
           
-          # Compile and install kernel modules into external directory
+          # Compile and install kernel modules into external staging directory
           make O=out ARCH=arm64 INSTALL_MOD_PATH=${{ github.workspace }}/mo_out modules_install
 
       - name: Package with AnyKernel3
@@ -137,10 +137,10 @@ jobs:
             cp compiled_output/Image anykernel/
           fi
           
-          # Copy compiled modules (.ko) into AnyKernel3 module structure
+          # Copy compiled modules (.ko) into AnyKernel3 vendor module structure
           if [ -d "mo_out" ]; then
-            mkdir -p anykernel/modules/system/lib/modules/
-            find mo_out -name "*.ko" -exec cp {} anykernel/modules/system/lib/modules/ \;
+            mkdir -p anykernel/modules/vendor/lib/modules/
+            find mo_out -name "*.ko" -exec cp {} anykernel/modules/vendor/lib/modules/ \;
           fi
           
           cd anykernel
