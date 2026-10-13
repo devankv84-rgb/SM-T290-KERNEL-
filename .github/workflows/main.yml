@@ -158,13 +158,13 @@ jobs:
           rm -rf anykernel
           git clone https://github.com/osm0sis/AnyKernel3 -b master anykernel
           
-          # Find and copy kernel image safely from out/ directory
-          KERNEL_IMAGE=$(find kernel-source/out -name "Image.gz-dtb" -o -name "Image.gz" -o -name "Image" | head -n 1)
+          # Find and copy kernel image safely from kernel-source/*/out directory
+          KERNEL_IMAGE=$(find kernel-source/*/out -name "Image.gz-dtb" -o -name "Image.gz" -o -name "Image" | head -n 1)
           if [ -n "$KERNEL_IMAGE" ]; then
             echo "Found kernel image at: $KERNEL_IMAGE"
             cp "$KERNEL_IMAGE" anykernel/Image.gz
           else
-            echo "Error: Kernel image not found in kernel-source/out directory!"
+            echo "Error: Kernel image not found in kernel-source/*/out directory!"
             exit 1
           fi
           
