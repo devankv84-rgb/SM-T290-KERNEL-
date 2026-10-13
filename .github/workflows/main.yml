@@ -90,7 +90,7 @@ jobs:
           
           export ARCH=arm64
           export SUBARCH=arm64
-          export KCFLAGS="-w"
+          export KCFLAGS="-w -Wno-error -Wno-unused-command-line-argument"
           
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
