@@ -71,11 +71,17 @@ jobs:
           mkdir -p kernel-source
           unzip -q kernel-source.zip -d kernel-source
 
+      - name: Clone RTL88xxau Driver into Kernel Tree
+        run: |
+          cd kernel-source/* || cd kernel-source
+          mkdir -p drivers/net/wireless/realtek
+          git clone https://github.com/aircrack-ng/rtl8812au.git drivers/net/wireless/realtek/rtl88xxau
+
       - name: Clone LineageOS Clang Toolchain
         run: |
           git clone --depth=1 https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b toolchain-clang
 
-      - name: Compile Kernel with Built-in Wi-Fi
+      - name: Compile Kernel, Drivers, and Install Modules
         run: |
           cd kernel-source/* || cd kernel-source
           
@@ -105,14 +111,19 @@ jobs:
           # Generate Defconfig
           make O=out ARCH=arm64 ${{ github.event.inputs.defconfig_name }}
           
-          # Force Wi-Fi driver built-in (=y) and enforce compatibility flags
+          # Configure driver flags: QCACLD built-in (=y), RTL88XXAU modular (=m), and compatibility flags
           grep -q "CONFIG_QCACLD_WLAN" out/.config && sed -i 's/CONFIG_QCACLD_WLAN=.*/CONFIG_QCACLD_WLAN=y/g' out/.config || echo "CONFIG_QCACLD_WLAN=y" >> out/.config
+          grep -q "CONFIG_RTL88XXAU" out/.config && sed -i 's/CONFIG_RTL88XXAU=.*/CONFIG_RTL88XXAU=m/g' out/.config || echo "CONFIG_RTL88XXAU=m" >> out/.config
           grep -q "CONFIG_COMPAT=y" out/.config || echo "CONFIG_COMPAT=y" >> out/.config
+          grep -q "CONFIG_SYSVIPC_COMPAT=y" out/.config || echo "CONFIG_SYSVIPC_COMPAT=y" >> out/.config
           
-          # Build kernel image directly
+          # Build kernel image
           make -j$(nproc) O=out \
             ARCH=arm64 \
             CLANG_TRIPLE=aarch64-linux-gnu-
+          
+          # Compile and install all modules (including rtl88xxau) into staging directory
+          make O=out ARCH=arm64 INSTALL_MOD_PATH=${{ github.workspace }}/mo_out modules_install
 
       - name: Package with AnyKernel3
         run: |
@@ -128,8 +139,14 @@ jobs:
             cp compiled_output/Image anykernel/
           fi
           
+          # Copy compiled external modules (.ko) into AnyKernel3 vendor module structure
+          if [ -d "mo_out" ]; then
+            mkdir -p anykernel/modules/vendor/lib/modules/
+            find mo_out -name "*.ko" -exec cp {} anykernel/modules/vendor/lib/modules/ \;
+          fi
+          
           cd anykernel
-          sed -i 's/do.modules=.*/do.modules=0/g' anykernel.sh
+          sed -i 's/do.modules=.*/do.modules=1/g' anykernel.sh
           sed -i 's/device\.name1=.*/device\.name1 = gtowifi/g' anykernel.sh
           sed -i 's/block=.*/block = \/dev\/block\/bootdevice\/by-name\/boot/g' anykernel.sh
           
