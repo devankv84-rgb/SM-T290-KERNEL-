@@ -81,7 +81,7 @@ jobs:
         run: |
           git clone --depth=1 https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b toolchain-clang
 
-      - name: Compile Kernel, Drivers, and Install Modules
+      - name: Compile Kernel, Explicitly Build Drivers, and Install Modules
         run: |
           cd kernel-source/* || cd kernel-source
           
@@ -122,7 +122,12 @@ jobs:
             ARCH=arm64 \
             CLANG_TRIPLE=aarch64-linux-gnu-
           
-          # Compile and install all modules (including rtl88xxau) into staging directory
+          # Explicitly compile out-of-tree rtl88xxau module against output config
+          make -j$(nproc) O=out ARCH=arm64 \
+            M=drivers/net/wireless/realtek/rtl88xxau \
+            modules
+          
+          # Install all modules into staging directory
           make O=out ARCH=arm64 INSTALL_MOD_PATH=${{ github.workspace }}/mo_out modules_install
 
       - name: Package with AnyKernel3
@@ -139,7 +144,13 @@ jobs:
             cp compiled_output/Image anykernel/
           fi
           
-          # Copy compiled external modules (.ko) into AnyKernel3 vendor module structure
+          # Copy all compiled modules (.ko) including rtl88xxau into AnyKernel3 vendor structure
+          if [ -d "kernel-source" ]; then
+            cd kernel-source/* || cd kernel-source
+            find out/drivers/net/wireless/realtek/rtl88xxau -name "*.ko" -exec cp {} ${{ github.workspace }}/anykernel/modules/vendor/lib/modules/ \; || true
+            cd ..
+          fi
+          
           if [ -d "mo_out" ]; then
             mkdir -p anykernel/modules/vendor/lib/modules/
             find mo_out -name "*.ko" -exec cp {} anykernel/modules/vendor/lib/modules/ \;
