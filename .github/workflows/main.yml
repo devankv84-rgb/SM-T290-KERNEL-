@@ -71,24 +71,16 @@ jobs:
           mkdir -p kernel-source
           unzip -q kernel-source.zip -d kernel-source
 
-      - name: Clone and Integrate RTL88xxau Driver into Kernel Tree
+      - name: Clone RTL88xxau Driver Out-of-Tree
         run: |
           cd kernel-source/* || cd kernel-source
-          mkdir -p drivers/net/wireless/realtek
-          git clone https://github.com/aircrack-ng/rtl8812au.git drivers/net/wireless/realtek/rtl88xxau
-          
-          # Ensure Kconfig and Makefile exist and include the new driver
-          touch drivers/net/wireless/realtek/Kconfig
-          grep -q "rtl88xxau" drivers/net/wireless/realtek/Kconfig || echo 'source "drivers/net/wireless/realtek/rtl88xxau/Kconfig"' >> drivers/net/wireless/realtek/Kconfig
-          
-          touch drivers/net/wireless/realtek/Makefile
-          grep -q "rtl88xxau" drivers/net/wireless/realtek/Makefile || echo 'obj-$(CONFIG_RTL88XXAU) += rtl88xxau/' >> drivers/net/wireless/realtek/Makefile
+          git clone https://github.com/aircrack-ng/rtl8812au.git drivers/rtl8812au
 
       - name: Clone LineageOS Clang Toolchain
         run: |
           git clone --depth=1 https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b toolchain-clang
 
-      - name: Compile Kernel Image and Modules
+      - name: Compile Kernel Image, Modules, and Out-of-Tree Driver
         run: |
           cd kernel-source/* || cd kernel-source
           
@@ -118,9 +110,8 @@ jobs:
           # Generate Defconfig
           make O=out ARCH=arm64 ${{ github.event.inputs.defconfig_name }}
           
-          # Configure driver and WLAN feature flags
+          # Configure WLAN and compatibility feature flags
           grep -q "CONFIG_QCACLD_WLAN" out/.config && sed -i 's/CONFIG_QCACLD_WLAN=.*/CONFIG_QCACLD_WLAN=y/g' out/.config || echo "CONFIG_QCACLD_WLAN=y" >> out/.config
-          grep -q "CONFIG_RTL88XXAU" out/.config && sed -i 's/CONFIG_RTL88XXAU=.*/CONFIG_RTL88XXAU=m/g' out/.config || echo "CONFIG_RTL88XXAU=m" >> out/.config
           grep -q "CONFIG_CFG80211" out/.config && sed -i 's/CONFIG_CFG80211=.*/CONFIG_CFG80211=m/g' out/.config || echo "CONFIG_CFG80211=m" >> out/.config
           grep -q "CONFIG_MAC80211" out/.config && sed -i 's/CONFIG_MAC80211=.*/CONFIG_MAC80211=m/g' out/.config || echo "CONFIG_MAC80211=m" >> out/.config
           grep -q "CONFIG_WLAN_FEATURE_P2P" out/.config && sed -i 's/CONFIG_WLAN_FEATURE_P2P=.*/CONFIG_WLAN_FEATURE_P2P=y/g' out/.config || echo "CONFIG_WLAN_FEATURE_P2P=y" >> out/.config
@@ -140,15 +131,23 @@ jobs:
           #define P2P_CLIENT_CONNECTING_STATE_2 7 \
           #define P2P_CLIENT_COMPLETED_STATE 8' drivers/staging/prima/CORE/SYS/legacy/src/utils/src/macTrace.c
           
-          # Build kernel image and device trees first
+          # 1. Build kernel image and device trees
           make -j$(nproc) O=out \
             ARCH=arm64 \
             CLANG_TRIPLE=aarch64-linux-gnu-
           
-          # Build all modules matching the config
+          # 2. Build standard in-tree modules
           make -j$(nproc) O=out \
             ARCH=arm64 \
             CLANG_TRIPLE=aarch64-linux-gnu- \
+            modules
+          
+          # 3. Build out-of-tree rtl8812au module against output directory
+          make -j$(nproc) ARCH=arm64 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CC=clang \
+            M=$PWD/drivers/rtl8812au \
+            -C out \
             modules
 
       - name: Package with AnyKernel3
