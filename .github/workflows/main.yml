@@ -141,9 +141,11 @@ jobs:
           # Prepare module build headers and symbols
           make -j$(nproc) O=out ARCH=arm64 modules_prepare
           
-          # Explicitly compile out-of-tree rtl88xxau module against output config
-          make -j$(nproc) O=out ARCH=arm64 \
-            M=drivers/net/wireless/realtek/rtl88xxau \
+          # Explicitly compile out-of-tree rtl88xxau module pointing to KSRC
+          make -j$(nproc) ARCH=arm64 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            KSRC=$PWD/out \
+            M=$PWD/drivers/net/wireless/realtek/rtl88xxau \
             modules
 
       - name: Package with AnyKernel3
