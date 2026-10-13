@@ -141,10 +141,11 @@ jobs:
           # Prepare module build headers and symbols
           make -j$(nproc) O=out ARCH=arm64 modules_prepare
           
-          # Explicitly compile out-of-tree rtl88xxau module pointing to KSRC
+          # Explicitly compile out-of-tree rtl88xxau module pointing to output directory
           make -j$(nproc) ARCH=arm64 \
             CROSS_COMPILE=aarch64-linux-gnu- \
-            KSRC=$PWD/out \
+            CC=clang \
+            O=out \
             M=$PWD/drivers/net/wireless/realtek/rtl88xxau \
             modules
 
