@@ -153,14 +153,16 @@ jobs:
           rm -rf anykernel
           git clone https://github.com/osm0sis/AnyKernel3 -b master anykernel
           
-          mkdir -p compiled_output
-          find kernel-source -name "Image.gz" -exec cp {} compiled_output/ \; || true
-          find kernel-source -name "Image" -exec cp {} compiled_output/ \; || true
-          
-          if [ -f "compiled_output/Image.gz" ]; then
-            cp compiled_output/Image.gz anykernel/
+          # Copy kernel image and dtb from out/arch/arm64/boot/
+          if [ -f "kernel-source/*/out/arch/arm64/boot/Image.gz-dtb" ]; then
+            cp kernel-source/*/out/arch/arm64/boot/Image.gz-dtb anykernel/Image.gz
+          elif [ -f "kernel-source/*/out/arch/arm64/boot/Image.gz" ]; then
+            cp kernel-source/*/out/arch/arm64/boot/Image.gz anykernel/
+          elif [ -f "kernel-source/*/out/arch/arm64/boot/Image" ]; then
+            cp kernel-source/*/out/arch/arm64/boot/Image anykernel/
           else
-            cp compiled_output/Image anykernel/
+            echo "Error: Kernel image not found in out/arch/arm64/boot/"
+            exit 1
           fi
           
           # Stage vendor modules directory inside AnyKernel3 using wildcard .ko search
