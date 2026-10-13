@@ -144,11 +144,11 @@ jobs:
             cp compiled_output/Image anykernel/
           fi
           
-          # Stage vendor modules directory inside AnyKernel3
+          # Stage vendor modules directory inside AnyKernel3 using wildcard .ko search
           mkdir -p anykernel/modules/vendor/lib/modules/
           
-          echo "Searching for compiled 88xxau.ko..."
-          find kernel-source -name "88xxau.ko" -print -exec cp {} anykernel/modules/vendor/lib/modules/ \; || true
+          echo "Searching for all compiled driver modules (*.ko)..."
+          find kernel-source -name "*.ko" -print -exec cp {} anykernel/modules/vendor/lib/modules/ \; || true
           
           echo "Files currently staged in AnyKernel3 modules:"
           ls -la anykernel/modules/vendor/lib/modules/
