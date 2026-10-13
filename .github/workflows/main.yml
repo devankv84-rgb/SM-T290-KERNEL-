@@ -126,12 +126,12 @@ jobs:
           make -j$(nproc) O=out ARCH=arm64 \
             M=drivers/net/wireless/realtek/rtl88xxau \
             modules
-          
-          # Install all modules into staging directory
-          make O=out ARCH=arm64 INSTALL_MOD_PATH=${{ github.workspace }}/mo_out modules_install
 
       - name: Package with AnyKernel3
         run: |
+          cd ${{ github.workspace }}
+          
+          rm -rf anykernel
           git clone https://github.com/osm0sis/AnyKernel3 -b master anykernel
           
           mkdir -p compiled_output
@@ -144,26 +144,21 @@ jobs:
             cp compiled_output/Image anykernel/
           fi
           
-          # Copy all compiled modules (.ko) including rtl88xxau into AnyKernel3 vendor structure
-          if [ -d "kernel-source" ]; then
-            cd kernel-source/* || cd kernel-source
-            find out/drivers/net/wireless/realtek/rtl88xxau -name "*.ko" -exec cp {} ${{ github.workspace }}/anykernel/modules/vendor/lib/modules/ \; || true
-            cd ..
-          fi
+          # Stage vendor modules directory inside AnyKernel3
+          mkdir -p anykernel/modules/vendor/lib/modules/
           
-          if [ -d "mo_out" ]; then
-            mkdir -p anykernel/modules/vendor/lib/modules/
-            find mo_out -name "*.ko" -exec cp {} anykernel/modules/vendor/lib/modules/ \;
-          fi
+          # Copy compiled RTL88xxau module (.ko)
+          find kernel-source -name "88xxau.ko" -exec cp {} anykernel/modules/vendor/lib/modules/ \; || true
           
+          # Configure AnyKernel3 script
           cd anykernel
           sed -i 's/do.modules=.*/do.modules=1/g' anykernel.sh
-          sed -i 's/device\.name1=.*/device\.name1 = gtowifi/g' anykernel.sh
-          sed -i 's/block=.*/block = \/dev\/block\/bootdevice\/by-name\/boot/g' anykernel.sh
+          sed -i 's/device\.name1=.*/device\.name1=gtowifi/g' anykernel.sh
+          sed -i 's|block=.*|block=/dev/block/bootdevice/by-name/boot|g' anykernel.sh
           
           rm -rf .git
           zip -r9 ../SM-T290-Lineage20-AnyKernel3-iam_devu.zip *
-          cd ..
+          cd ${{ github.workspace }}
           
           mkdir -p final_zip
           mv SM-T290-Lineage20-AnyKernel3-iam_devu.zip final_zip/
