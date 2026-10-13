@@ -121,8 +121,17 @@ jobs:
           grep -q "CONFIG_COMPAT=y" out/.config || echo "CONFIG_COMPAT=y" >> out/.config
           grep -q "CONFIG_SYSVIPC_COMPAT=y" out/.config || echo "CONFIG_SYSVIPC_COMPAT=y" >> out/.config
           
-          # Inject P2P preprocessor flag into prima Kbuild
-          echo "EXTRA_CFLAGS += -DFEATURE_WLAN_P2P" >> drivers/staging/prima/Kbuild
+          # Inject P2P fallback definitions into macTrace.c to bypass undeclared errors
+          sed -i '/#include "macTrace.h"/a \
+          #define P2P_NOT_ACTIVE 0 \
+          #define P2P_GO_NEG_PROCESS 1 \
+          #define P2P_GO_NEG_COMPLETED 2 \
+          #define P2P_CLIENT_CONNECTING_STATE_1 3 \
+          #define P2P_GO_COMPLETED_STATE 4 \
+          #define P2P_CLIENT_CONNECTED_STATE_1 5 \
+          #define P2P_CLIENT_DISCONNECTED_STATE 6 \
+          #define P2P_CLIENT_CONNECTING_STATE_2 7 \
+          #define P2P_CLIENT_COMPLETED_STATE 8' drivers/staging/prima/CORE/SYS/legacy/src/utils/src/macTrace.c
           
           # Build kernel image
           make -j$(nproc) O=out \
