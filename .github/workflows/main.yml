@@ -121,6 +121,9 @@ jobs:
           grep -q "CONFIG_COMPAT=y" out/.config || echo "CONFIG_COMPAT=y" >> out/.config
           grep -q "CONFIG_SYSVIPC_COMPAT=y" out/.config || echo "CONFIG_SYSVIPC_COMPAT=y" >> out/.config
           
+          # Inject P2P preprocessor flag into prima Kbuild
+          echo "EXTRA_CFLAGS += -DFEATURE_WLAN_P2P" >> drivers/staging/prima/Kbuild
+          
           # Build kernel image
           make -j$(nproc) O=out \
             ARCH=arm64 \
