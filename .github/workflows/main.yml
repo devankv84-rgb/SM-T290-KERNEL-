@@ -153,15 +153,13 @@ jobs:
           rm -rf anykernel
           git clone https://github.com/osm0sis/AnyKernel3 -b master anykernel
           
-          # Copy kernel image and dtb from out/arch/arm64/boot/
-          if [ -f "kernel-source/*/out/arch/arm64/boot/Image.gz-dtb" ]; then
-            cp kernel-source/*/out/arch/arm64/boot/Image.gz-dtb anykernel/Image.gz
-          elif [ -f "kernel-source/*/out/arch/arm64/boot/Image.gz" ]; then
-            cp kernel-source/*/out/arch/arm64/boot/Image.gz anykernel/
-          elif [ -f "kernel-source/*/out/arch/arm64/boot/Image" ]; then
-            cp kernel-source/*/out/arch/arm64/boot/Image anykernel/
+          # Find and copy kernel image safely using find
+          KERNEL_IMAGE=$(find kernel-source -name "Image.gz-dtb" -o -name "Image.gz" -o -name "Image" | head -n 1)
+          if [ -n "$KERNEL_IMAGE" ]; then
+            echo "Found kernel image at: $KERNEL_IMAGE"
+            cp "$KERNEL_IMAGE" anykernel/Image.gz
           else
-            echo "Error: Kernel image not found in out/arch/arm64/boot/"
+            echo "Error: Kernel image not found in kernel-source directory!"
             exit 1
           fi
           
