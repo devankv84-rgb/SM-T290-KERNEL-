@@ -93,14 +93,22 @@ jobs:
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
           export CLANG_TRIPLE=aarch64-linux-gnu-
+          export CC=clang
           export HOSTCC=gcc
           export HOSTCXX=g++
+          export AS=aarch64-linux-gnu-as
+          export LD=aarch64-linux-gnu-ld
+          export AR=aarch64-linux-gnu-ar
+          export NM=aarch64-linux-gnu-nm
+          export OBJCOPY=aarch64-linux-gnu-objcopy
+          export OBJDUMP=aarch64-linux-gnu-objdump
+          export STRIP=aarch64-linux-gnu-strip
 
           mkdir -p out
           echo "-iam_devu" > localversion
 
           # Generate defconfig
-          make O=out ARCH=arm64 CC=clang ${{ github.event.inputs.defconfig_name }}
+          make O=out ARCH=arm64 ${{ github.event.inputs.defconfig_name }}
 
           # Apply config changes with the kernel's own script, then resolve dependencies
           scripts/config --file out/.config \
@@ -109,7 +117,7 @@ jobs:
             -m CFG80211 -e CFG80211_WEXT -m MAC80211 \
             -e COMPAT -e SYSVIPC_COMPAT \
             -e QCACLD_WLAN -e WLAN_FEATURE_P2P -e PRIMA_WLAN_OKC || true
-          make O=out ARCH=arm64 CC=clang olddefconfig
+          make O=out ARCH=arm64 olddefconfig
 
           echo "=== Resulting key config values ==="
           grep -E "^CONFIG_(MODULES|USB|CFG80211|MAC80211|COMPAT)=" out/.config || true
@@ -133,13 +141,13 @@ jobs:
           fi
 
           # 1. Kernel image + device trees
-          make -j$(nproc) O=out ARCH=arm64 CC="ccache clang"
+          make -j$(nproc) O=out ARCH=arm64 CLANG_TRIPLE=aarch64-linux-gnu-
 
           # 2. In-tree modules
-          make -j$(nproc) O=out ARCH=arm64 CC="ccache clang" modules
+          make -j$(nproc) O=out ARCH=arm64 CLANG_TRIPLE=aarch64-linux-gnu- modules
 
           # 3. Prepare tree for external module builds
-          make O=out ARCH=arm64 CC=clang modules_prepare
+          make O=out ARCH=arm64 CLANG_TRIPLE=aarch64-linux-gnu- modules_prepare
 
           # 4. Out-of-tree rtl8812au (override x86 default platform)
           make -j$(nproc) -C out ARCH=arm64 \
