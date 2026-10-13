@@ -71,17 +71,24 @@ jobs:
           mkdir -p kernel-source
           unzip -q kernel-source.zip -d kernel-source
 
-      - name: Clone RTL88xxau Driver into Kernel Tree
+      - name: Clone and Integrate RTL88xxau Driver into Kernel Tree
         run: |
           cd kernel-source/* || cd kernel-source
           mkdir -p drivers/net/wireless/realtek
           git clone https://github.com/aircrack-ng/rtl8812au.git drivers/net/wireless/realtek/rtl88xxau
+          
+          # Ensure Kconfig and Makefile exist and include the new driver
+          touch drivers/net/wireless/realtek/Kconfig
+          grep -q "rtl88xxau" drivers/net/wireless/realtek/Kconfig || echo 'source "drivers/net/wireless/realtek/rtl88xxau/Kconfig"' >> drivers/net/wireless/realtek/Kconfig
+          
+          touch drivers/net/wireless/realtek/Makefile
+          grep -q "rtl88xxau" drivers/net/wireless/realtek/Makefile || echo 'obj-$(CONFIG_RTL88XXAU) += rtl88xxau/' >> drivers/net/wireless/realtek/Makefile
 
       - name: Clone LineageOS Clang Toolchain
         run: |
           git clone --depth=1 https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b toolchain-clang
 
-      - name: Compile Kernel, Explicitly Build Drivers, and Install Modules
+      - name: Compile Kernel and Modules
         run: |
           cd kernel-source/* || cd kernel-source
           
@@ -133,20 +140,10 @@ jobs:
           #define P2P_CLIENT_CONNECTING_STATE_2 7 \
           #define P2P_CLIENT_COMPLETED_STATE 8' drivers/staging/prima/CORE/SYS/legacy/src/utils/src/macTrace.c
           
-          # Build kernel image
+          # Build kernel image, device trees, and all modules natively
           make -j$(nproc) O=out \
             ARCH=arm64 \
-            CLANG_TRIPLE=aarch64-linux-gnu-
-          
-          # Prepare module build headers and symbols
-          make -j$(nproc) O=out ARCH=arm64 modules_prepare
-          
-          # Explicitly compile out-of-tree rtl88xxau module pointing to output directory
-          make -j$(nproc) ARCH=arm64 \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            CC=clang \
-            O=out \
-            M=$PWD/drivers/net/wireless/realtek/rtl88xxau \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
             modules
 
       - name: Package with AnyKernel3
