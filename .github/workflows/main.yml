@@ -147,10 +147,12 @@ jobs:
           # Stage vendor modules directory inside AnyKernel3
           mkdir -p anykernel/modules/vendor/lib/modules/
           
-          # Copy compiled RTL88xxau module (.ko)
-          find kernel-source -name "88xxau.ko" -exec cp {} anykernel/modules/vendor/lib/modules/ \; || true
+          echo "Searching for compiled 88xxau.ko..."
+          find kernel-source -name "88xxau.ko" -print -exec cp {} anykernel/modules/vendor/lib/modules/ \; || true
           
-          # Configure AnyKernel3 script
+          echo "Files currently staged in AnyKernel3 modules:"
+          ls -la anykernel/modules/vendor/lib/modules/
+          
           cd anykernel
           sed -i 's/do.modules=.*/do.modules=1/g' anykernel.sh
           sed -i 's/device\.name1=.*/device\.name1=gtowifi/g' anykernel.sh
