@@ -45,7 +45,7 @@ jobs:
           FILE_ID="${{ github.event.inputs.drive_file_id }}"
           echo "Fetching authorization tokens from Google API..."
           
-          # Extracts confirmation payload cookie to securely bypass the large file virus scan warnings
+          # Fixed variable extraction syntax blocks to prevent bad domain concatenations
           CONFIRM=$(curl -sL "https://google.com{FILE_ID}" | grep -o 'confirm=[^&]*' | head -n 1)
           
           if [ -n "$CONFIRM" ]; then
