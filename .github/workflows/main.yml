@@ -6,15 +6,15 @@ on:
       kernel_repo:
         description: 'Target Kernel Repository URL'
         required: true
-        default: 'https://github.com/LineageOS/android_kernel_samsung_sdm429'
+        default: 'https://github.com'
       kernel_branch:
         description: 'Target Repository Branch'
         required: true
-        default: 'lineage-20'  # Fixed branch name shorthand string matching AOSP trees
+        default: 'lineage-20'
       defconfig_name:
         description: 'Target Defconfig File'
         required: true
-        default: 'msm8937_defconfig'  # Adjusted to official defconfig naming structure
+        default: 'msm8937_defconfig'
 
 jobs:
   build-kernel:
@@ -46,12 +46,15 @@ jobs:
 
       - name: Clone Kernel Source Tree directly from Git
         run: |
-          # Clones source workspace branch tracking targeting cleanly
           git clone --depth=1 -b "${{ github.event.inputs.kernel_branch }}" "${{ github.event.inputs.kernel_repo }}" kernel-source
 
       - name: Clone Toolchain & Realtek Driver
         run: |
-          git clone --depth=1 https://github.com toolchain-clang
+          # Added explicit block wrapping breaks to safeguard the toolchain url path
+          git clone --depth=1 \
+            https://github.com \
+            toolchain-clang
+          
           git clone --depth=1 https://github.com kernel-source/drivers/net/wireless/rtl8812au
 
       - name: Compile Kernel Image and Realtek Module
