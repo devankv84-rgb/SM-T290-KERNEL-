@@ -47,8 +47,8 @@ jobs:
           FILE_ID="${{ github.event.inputs.drive_file_id }}"
           echo "Downloading kernel source zip via gdown..."
           
-          # Cleaned up URL structure targeting the format directly to bypass validation constraints
-          gdown --id "$FILE_ID" -O kernel-source.zip
+          # Cleaned up parameter mapping to respect strict positional arguments required by gdown
+          gdown -O kernel-source.zip "https://google.com" --confirm-recovery
           
           mkdir -p kernel-source
           unzip -q kernel-source.zip -d kernel-source
