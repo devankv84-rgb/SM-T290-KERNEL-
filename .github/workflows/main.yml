@@ -6,7 +6,7 @@ on:
       kernel_repo:
         description: 'Target Kernel Repository URL'
         required: true
-        default: 'https://github.com/LineageOS/android_kernel_samsung_sdm429'
+        default: 'https://github.com'
       kernel_branch:
         description: 'Target Repository Branch'
         required: true
@@ -46,20 +46,22 @@ jobs:
 
       - name: Clone Kernel Source Tree directly from Git
         run: |
-          # Removed dynamic quote wrapping constraints that cut off variables early
           git clone --depth=1 -b ${{ github.event.inputs.kernel_branch }} ${{ github.event.inputs.kernel_repo }} kernel-source
 
       - name: Clone Toolchain & Realtek Driver
         run: |
-          git clone --depth=1 https://github.com toolchain-clang
+          # Kept strictly on a single unbroken line to completely eliminate line-split truncation drops
+          git clone --depth=1 https://googlesource.com toolchain-clang
+          
           git clone --depth=1 https://github.com kernel-source/drivers/net/wireless/rtl8812au
 
       - name: Compile Kernel Image and Realtek Module
         run: |
           cd kernel-source
           
-          # Force clean target path definitions
-          export PATH="${{ github.workspace }}/toolchain-clang/bin:$PATH"
+          # Locating the specific Clang-r416183b equivalent binary sub-directory dynamically within Google's file structure layout
+          CLANG_DIR=$(find ${{ github.workspace }}/toolchain-clang -name "clang-r*" -type d | head -n 1)
+          export PATH="$CLANG_DIR/bin:$PATH"
           
           # Cross-compile target architectures
           export ARCH=arm64
@@ -83,7 +85,7 @@ jobs:
           echo "CONFIG_MAC80211=m" >> out/.config
           echo "CONFIG_COMPAT=y" >> out/.config
           
-          # 3. AUTO-ACCEPT NEW SUB-CONFIG PROMPTS (Avoids Minstrel Hangs)
+          # 3. AUTO-ACCEPT NEW SUB-CONFIG PROMPTS (Bypasses interactive prompt crashes)
           make O=out ARCH=arm64 olddefconfig
           
           # Trace safety injections inside staging directories
