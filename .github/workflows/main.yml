@@ -39,22 +39,28 @@ jobs:
             git wget zip unzip lzop perl rsync kmod device-tree-compiler ccache \
             python3 python3-pip binutils-aarch64-linux-gnu binutils-arm-linux-gnueabi \
             gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
-          pip install --upgrade pip
-          pip install gdown
 
-      - name: Download and Extract Kernel Source
+      - name: Download and Extract Kernel Source (Bypass Scan Blocks)
         run: |
           FILE_ID="${{ github.event.inputs.drive_file_id }}"
-          echo "Downloading kernel source zip via gdown..."
+          echo "Fetching confirmation tokens from Google API..."
           
-          # Cleaned up parameter mapping to respect strict positional arguments required by gdown
-          gdown -O kernel-source.zip "https://google.com" --confirm-recovery
+          # Clean fallback sequence generating confirmation payloads to securely bypass warning triggers
+          CONFIRM=$(curl -sL "https://google.com{FILE_ID}" | grep -o 'confirm=[^&]*' | head -n 1)
+          
+          if [ -n "$CONFIRM" ]; then
+            echo "Virus scan verification token identified: $CONFIRM"
+            curl -L "https://google.com{CONFIRM}&id=${FILE_ID}" -o kernel-source.zip
+          else
+            echo "Direct downloading source mapping file directly..."
+            curl -L "https://google.com{FILE_ID}" -o kernel-source.zip
+          fi
           
           mkdir -p kernel-source
           unzip -q kernel-source.zip -d kernel-source
           
-          # Standardize folder layout so we don't guess paths in subsequent steps
-          if [ -d kernel-source/*-gtowifi* ] || [ -d kernel-source/android_* ]; then
+          # Normalise folder workspace layer to avoid guessing directory contexts
+          if [ -d kernel-source/*-gtowifi* ] || [ -d kernel-source/android_* ] || [ -d kernel-source/kernel* ]; then
             mv kernel-source/*/* kernel-source/ 2>/dev/null || true
           fi
 
@@ -67,10 +73,10 @@ jobs:
         run: |
           cd kernel-source
           
-          # Fix working paths
+          # Force clean target path definitions
           export PATH="${{ github.workspace }}/toolchain-clang/bin:$PATH"
           
-          # Cross-compile flag setups
+          # Cross-compile target architectures
           export ARCH=arm64
           export SUBARCH=arm64
           export KCFLAGS="-w -Wno-error -Wno-unused-command-line-argument"
@@ -83,30 +89,28 @@ jobs:
           mkdir -p out
           echo "-iam_devu" > localversion
           
-          # 1. Generate base configurations from defconfig
+          # 1. Map tablet template definitions
           make O=out ARCH=arm64 ${{ github.event.inputs.defconfig_name }}
           
-          # 2. Append Network & MAC capability configurations safely
+          # 2. Configure network properties safely
           sed -i 's/# CONFIG_CFG80211 is not set/CONFIG_CFG80211=m/g' out/.config
           echo "CONFIG_CFG80211=m" >> out/.config
           echo "CONFIG_MAC80211=m" >> out/.config
           echo "CONFIG_COMPAT=y" >> out/.config
           
-          # 3. AUTO-ACCEPT NEW SUB-CONFIG PROMPTS (Fixes the Minstrel Abort Error)
+          # 3. Clean up prompt evaluation sequences automatically
           make O=out ARCH=arm64 olddefconfig
           
-          # Inject stability fixes into legacy device staging areas
+          # Trace safety injections inside staging directories
           if [ -f drivers/staging/prima/CORE/SYS/legacy/src/utils/src/macTrace.c ]; then
             sed -i '/#include "macTrace.h"/a #define P2P_NOT_ACTIVE 0\n#define P2P_GO_NEG_PROCESS 1\n#define P2P_GO_NEG_COMPLETED 2\n#define P2P_CLIENT_CONNECTING_STATE_1 3\n#define P2P_GO_COMPLETED_STATE 4\n#define P2P_CLIENT_CONNECTED_STATE_1 5\n#define P2P_CLIENT_DISCONNECTED_STATE 6\n#define P2P_CLIENT_CONNECTING_STATE_2 7\n#define P2P_CLIENT_COMPLETED_STATE 8' drivers/staging/prima/CORE/SYS/legacy/src/utils/src/macTrace.c
           fi
           
-          # Step 1: Compile base kernel tree 
+          # Build target components natively 
           make -j$(nproc) O=out ARCH=arm64 CLANG_TRIPLE=aarch64-linux-gnu-
-          
-          # Step 2: Compile native modules
           make -j$(nproc) O=out ARCH=arm64 CLANG_TRIPLE=aarch64-linux-gnu- modules
           
-          # Step 3: Compile Realtek module cleanly using proper environment indicators
+          # Build external out-of-tree hardware module
           cd drivers/net/wireless/rtl8812au
           make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- KSRC="${{ github.workspace }}/kernel-source/out" modules
 
@@ -114,18 +118,18 @@ jobs:
         run: |
           git clone https://github.com -b master anykernel
           
-          # Grab compiled image
+          # Trace kernel binary output
           KERNEL_IMAGE=$(find kernel-source/out -name "Image.gz-dtb" -o -name "Image.gz" -o -name "Image" | head -n 1)
           cp "$KERNEL_IMAGE" anykernel/Image.gz
           
-          # Setup modules location inside update container template wrapper
+          # Copy driver binary blobs systemless-ly 
           mkdir -p anykernel/modules/vendor/lib/modules/
           find kernel-source -name "*.ko" -exec cp {} anykernel/modules/vendor/lib/modules/ \;
           
-          # Update structural logic settings for dynamic target partition updates
+          # Patch operational flags inside script template configurations
           cd anykernel
           sed -i 's/do.modules=.*/do.modules=1/g' anykernel.sh
-          sed -i 's/do.systemless=.*/do.systemless=1/g' anykernel.sh   # Enables systemless overlay creation
+          sed -i 's/do.systemless=.*/do.systemless=1/g' anykernel.sh
           sed -i 's/device\.name1=.*/device\.name1=gtowifi/g' anykernel.sh
           sed -i 's|block=.*|block=/dev/block/bootdevice/by-name/boot|g' anykernel.sh
           
