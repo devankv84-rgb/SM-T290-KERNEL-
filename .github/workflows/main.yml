@@ -47,8 +47,8 @@ jobs:
           FILE_ID="${{ github.event.inputs.drive_file_id }}"
           echo "Downloading kernel source zip via gdown..."
           
-          # Force download bypassing the Google Drive large file virus scan warning confirmation page
-          gdown --fuzzy "https://google.com" -O kernel-source.zip
+          # Cleaned up URL structure targeting the format directly to bypass validation constraints
+          gdown --id "$FILE_ID" -O kernel-source.zip
           
           mkdir -p kernel-source
           unzip -q kernel-source.zip -d kernel-source
