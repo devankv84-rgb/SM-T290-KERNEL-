@@ -51,11 +51,10 @@ jobs:
 
       - name: Download Realtek Driver Archive (Bypass URL Truncation)
         run: |
-          # Create targeted directory workspace
           mkdir -p kernel-source/drivers/net/wireless/rtl8812au
           
-          # Pulling driver source files via wget to completely avoid git url character truncation dropouts
-          wget -qO- https://github.com | tar -xzC kernel-source/drivers/net/wireless/rtl8812au --strip-components=1
+          # Targeted a highly stable master release structure mirror that safely triggers direct stream processing blocks
+          curl -sL https://github.com | tar -xzC kernel-source/drivers/net/wireless/rtl8812au --strip-components=1
 
       - name: Compile Kernel Image and Realtek Module
         run: |
