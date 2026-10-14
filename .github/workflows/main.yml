@@ -11,8 +11,12 @@ on:
         description: 'Target Defconfig File'
         required: true
         default: 'lineageos_gtowifi_defconfig'
+      rtl_repo:
+        description: 'RTL88xxau driver git URL'
+        required: true
+        default: 'https://github.com/aircrack-ng/rtl8812au.git'
       rtl_branch:
-        description: 'rtl8812au branch/tag (v5.6.4.2 suits old kernels)'
+        description: 'Driver branch/tag (v5.6.4.2 recommended; v5.1.5 as fallback)'
         required: true
         default: 'v5.6.4.2'
 
@@ -74,7 +78,7 @@ jobs:
         run: |
           set -eo pipefail
           git clone --depth=1 -b "${{ github.event.inputs.rtl_branch }}" \
-            https://github.com/aircrack-ng/rtl8812au.git "$KERNEL_ROOT/drivers/rtl8812au"
+            "${{ github.event.inputs.rtl_repo }}" "$KERNEL_ROOT/drivers/rtl8812au"
 
       - name: Clone LineageOS Clang Toolchain
         run: |
@@ -85,7 +89,21 @@ jobs:
           set -eo pipefail
           cd "$KERNEL_ROOT"
 
-          export PATH="${{ github.workspace }}/toolchain-clang/bin:$PATH"
+          # Shim dir: the kernel Makefile passes --prefix=<dir of aarch64 ld/elfedit>, and
+          # clang looks for a plain "as" there first. In /usr/bin that is the x86 assembler
+          # (error: "/usr/bin/as: unrecognized option '-EL'"). Point plain names at aarch64 tools.
+          SHIM="$HOME/a64-bin"
+          mkdir -p "$SHIM"
+          for t in as ld ld.bfd ld.gold ar nm objcopy objdump strip readelf elfedit ranlib; do
+            if [ -x "/usr/bin/aarch64-linux-gnu-$t" ]; then
+              ln -sf "/usr/bin/aarch64-linux-gnu-$t" "$SHIM/$t"
+              ln -sf "/usr/bin/aarch64-linux-gnu-$t" "$SHIM/aarch64-linux-gnu-$t"
+            fi
+          done
+          export PATH="$SHIM:${{ github.workspace }}/toolchain-clang/bin:$PATH"
+          echo "=== Assembler resolution ==="
+          which as aarch64-linux-gnu-as aarch64-linux-gnu-ld aarch64-linux-gnu-elfedit
+          as --version | head -n1
 
           export ARCH=arm64
           export SUBARCH=arm64
@@ -162,6 +180,7 @@ jobs:
             CLANG_TRIPLE=aarch64-linux-gnu- \
             M="$KERNEL_ROOT/drivers/rtl8812au" \
             CONFIG_88XXAU=m \
+            CONFIG_RTL8812AU=m \
             CONFIG_PLATFORM_I386_PC=n \
             modules V=1 2>&1 | tee "${{ github.workspace }}/rtl8812au-build.log"
 
