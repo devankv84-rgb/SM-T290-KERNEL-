@@ -36,34 +36,28 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-kernel-ccache-
 
-      - name: Install Host Dependencies & Cross-Compilers
+      - name: Install Host Dependencies & System Clang Compiler
         run: |
           sudo apt-get update && sudo apt-get install -y \
             build-essential bc bison flex libssl-dev libncurses5-dev libelf-dev \
             git wget zip unzip lzop perl rsync kmod device-tree-compiler ccache \
             python3 python3-pip binutils-aarch64-linux-gnu binutils-arm-linux-gnueabi \
-            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
+            clang lld # Installs Clang directly from Ubuntu mirrors to completely bypass URL tracking limits
 
       - name: Clone Kernel Source Tree directly from Git
         run: |
           git clone --depth=1 -b ${{ github.event.inputs.kernel_branch }} ${{ github.event.inputs.kernel_repo }} kernel-source
 
-      - name: Clone Toolchain & Realtek Driver
+      - name: Clone Realtek Wireless Driver
         run: |
-          # Kept strictly on a single unbroken line to completely eliminate line-split truncation drops
-          git clone --depth=1 https://googlesource.com toolchain-clang
-          
           git clone --depth=1 https://github.com kernel-source/drivers/net/wireless/rtl8812au
 
       - name: Compile Kernel Image and Realtek Module
         run: |
           cd kernel-source
           
-          # Locating the specific Clang-r416183b equivalent binary sub-directory dynamically within Google's file structure layout
-          CLANG_DIR=$(find ${{ github.workspace }}/toolchain-clang -name "clang-r*" -type d | head -n 1)
-          export PATH="$CLANG_DIR/bin:$PATH"
-          
-          # Cross-compile target architectures
+          # Target cross-compilation system definitions using native environment binaries
           export ARCH=arm64
           export SUBARCH=arm64
           export KCFLAGS="-w -Wno-error -Wno-unused-command-line-argument"
@@ -94,8 +88,8 @@ jobs:
           fi
           
           # Build target components natively 
-          make -j$(nproc) O=out ARCH=arm64 CLANG_TRIPLE=aarch64-linux-gnu-
-          make -j$(nproc) O=out ARCH=arm64 CLANG_TRIPLE=aarch64-linux-gnu- modules
+          make -j$(nproc) O=out ARCH=arm64
+          make -j$(nproc) O=out ARCH=arm64 modules
           
           # Build external out-of-tree hardware module
           cd drivers/net/wireless/rtl8812au
