@@ -11,14 +11,6 @@ on:
         description: 'Target Defconfig File'
         required: true
         default: 'lineageos_gtowifi_defconfig'
-      rtl_repo:
-        description: 'RTL88xxau driver git URL'
-        required: true
-        default: 'https://github.com/aircrack-ng/rtl8812au.git'
-      rtl_branch:
-        description: 'Driver branch/tag (v5.6.4.2 recommended; v5.1.5 as fallback)'
-        required: true
-        default: 'v5.6.4.2'
 
 jobs:
   build-kernel:
@@ -31,7 +23,7 @@ jobs:
         run: |
           echo "TZ=UTC" >> $GITHUB_ENV
           echo "CCACHE_DIR=${{ github.workspace }}/ccache" >> $GITHUB_ENV
-
+          
       - name: Cache Ccache
         uses: actions/cache@v4
         with:
@@ -45,210 +37,97 @@ jobs:
           sudo apt-get update && sudo apt-get install -y \
             build-essential bc bison flex libssl-dev libncurses5-dev libelf-dev \
             git wget zip unzip lzop perl rsync kmod device-tree-compiler ccache \
-            python3 python3-pip \
-            binutils-aarch64-linux-gnu binutils-arm-linux-gnueabi \
+            python3 python3-pip binutils-aarch64-linux-gnu binutils-arm-linux-gnueabi \
             gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
-
           pip install --upgrade pip
           pip install gdown
 
-      - name: Download Kernel Source Zip from Google Drive
+      - name: Download and Extract Kernel Source
         run: |
-          set -eo pipefail
           FILE_ID="${{ github.event.inputs.drive_file_id }}"
-          echo "Downloading kernel source zip via gdown..."
           gdown "https://drive.google.com/uc?id=$FILE_ID" -O kernel-source.zip
-
           mkdir -p kernel-source
           unzip -q kernel-source.zip -d kernel-source
-
-      - name: Locate Kernel Root
-        run: |
-          set -eo pipefail
-          # Kernel root = directory that contains an "arch" folder
-          KROOT=$(find "$GITHUB_WORKSPACE/kernel-source" -maxdepth 3 -type d -name arch -printf '%h\n' | head -n1)
-          if [ -z "$KROOT" ] || [ ! -f "$KROOT/Makefile" ]; then
-            echo "Error: could not locate kernel root (Makefile + arch/)"
-            exit 1
+          
+          # Standardize folder layout so we don't guess paths in subsequent steps
+          if [ -d kernel-source/*-gtowifi* ] || [ -d kernel-source/android_* ]; then
+            mv kernel-source/*/* kernel-source/ 2>/dev/null || true
           fi
-          echo "Kernel root: $KROOT"
-          echo "KERNEL_ROOT=$KROOT" >> $GITHUB_ENV
 
-      - name: Clone RTL88xxau Driver Out-of-Tree
-        run: |
-          set -eo pipefail
-          git clone --depth=1 -b "${{ github.event.inputs.rtl_branch }}" \
-            "${{ github.event.inputs.rtl_repo }}" "$KERNEL_ROOT/drivers/rtl8812au"
-
-      - name: Clone LineageOS Clang Toolchain
+      - name: Clone Toolchain & Realtek Driver
         run: |
           git clone --depth=1 https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b toolchain-clang
+          git clone --depth=1 https://github.com/aircrack-ng/rtl8812au.git kernel-source/drivers/net/wireless/rtl8812au
 
-      - name: Compile Kernel Image, Modules, and Out-of-Tree Driver
+      - name: Compile Kernel Image and Realtek Module
         run: |
-          set -eo pipefail
-          # Save everything this step prints so a failed build still leaves a log
-          exec > >(tee -a "${{ github.workspace }}/build-full.log") 2>&1
-          cd "$KERNEL_ROOT"
-
-          # Shim dir: the kernel Makefile passes --prefix=<dir of aarch64 ld/elfedit>, and
-          # clang looks for a plain "as" there first. In /usr/bin that is the x86 assembler
-          # (error: "/usr/bin/as: unrecognized option '-EL'"). Point plain names at aarch64 tools.
-          SHIM="$HOME/a64-bin"
-          mkdir -p "$SHIM"
-          for t in as ld ld.bfd ld.gold ar nm objcopy objdump strip readelf elfedit ranlib; do
-            if [ -x "/usr/bin/aarch64-linux-gnu-$t" ]; then
-              ln -sf "/usr/bin/aarch64-linux-gnu-$t" "$SHIM/$t"
-              ln -sf "/usr/bin/aarch64-linux-gnu-$t" "$SHIM/aarch64-linux-gnu-$t"
-            fi
-          done
-          export PATH="$SHIM:${{ github.workspace }}/toolchain-clang/bin:$PATH"
-          echo "=== Assembler resolution ==="
-          which as aarch64-linux-gnu-as aarch64-linux-gnu-ld aarch64-linux-gnu-elfedit
-          as --version | head -n1
-
+          cd kernel-source
+          
+          # Fix working paths
+          export PATH="${{ github.workspace }}/toolchain-clang/bin:$PATH"
+          
+          # Cross-compile flag setups
           export ARCH=arm64
           export SUBARCH=arm64
           export KCFLAGS="-w -Wno-error -Wno-unused-command-line-argument"
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
-          export CLANG_TRIPLE=aarch64-linux-gnu-
           export CC=clang
           export HOSTCC=gcc
           export HOSTCXX=g++
-          export AS=aarch64-linux-gnu-as
-          export LD=aarch64-linux-gnu-ld
-          export AR=aarch64-linux-gnu-ar
-          export NM=aarch64-linux-gnu-nm
-          export OBJCOPY=aarch64-linux-gnu-objcopy
-          export OBJDUMP=aarch64-linux-gnu-objdump
-          export STRIP=aarch64-linux-gnu-strip
-
+          
           mkdir -p out
           echo "-iam_devu" > localversion
-
-          # Generate defconfig
+          
+          # Generate base configurations
           make O=out ARCH=arm64 ${{ github.event.inputs.defconfig_name }}
-
-          # Apply config changes with the kernel's own script, then resolve dependencies
-          scripts/config --file out/.config \
-            -e MODULES -e MODULE_UNLOAD -e MODULE_FORCE_UNLOAD \
-            -e USB -e USB_SUPPORT \
-            -m CFG80211 -e CFG80211_WEXT -m MAC80211 \
-            -e COMPAT -e SYSVIPC_COMPAT \
-            -e QCACLD_WLAN -e WLAN_FEATURE_P2P -e PRIMA_WLAN_OKC || true
-          make O=out ARCH=arm64 olddefconfig
-
-          echo "=== Resulting key config values ==="
-          grep -E "^CONFIG_(MODULES|USB|CFG80211|MAC80211|COMPAT)=" out/.config || true
-
-          # Inject P2P fallback definitions into macTrace.c (only if the file exists)
-          MACTRACE="drivers/staging/prima/CORE/SYS/legacy/src/utils/src/macTrace.c"
-          if [ -f "$MACTRACE" ]; then
-            cat > /tmp/p2p_defs.txt <<'EOF'
-          #define P2P_NOT_ACTIVE 0
-          #define P2P_GO_NEG_PROCESS 1
-          #define P2P_GO_NEG_COMPLETED 2
-          #define P2P_CLIENT_CONNECTING_STATE_1 3
-          #define P2P_GO_COMPLETED_STATE 4
-          #define P2P_CLIENT_CONNECTED_STATE_1 5
-          #define P2P_CLIENT_DISCONNECTED_STATE 6
-          #define P2P_CLIENT_CONNECTING_STATE_2 7
-          #define P2P_CLIENT_COMPLETED_STATE 8
-          EOF
-            sed -i 's/^[[:space:]]*#define/#define/' /tmp/p2p_defs.txt
-            sed -i '/#include "macTrace.h"/r /tmp/p2p_defs.txt' "$MACTRACE"
+          
+          # Append Network & MAC capability configurations safely
+          sed -i 's/# CONFIG_CFG80211 is not set/CONFIG_CFG80211=m/g' out/.config
+          echo "CONFIG_CFG80211=m" >> out/.config
+          echo "CONFIG_MAC80211=m" >> out/.config
+          echo "CONFIG_COMPAT=y" >> out/.config
+          
+          # Inject stability fixes into legacy device staging areas
+          if [ -f drivers/staging/prima/CORE/SYS/legacy/src/utils/src/macTrace.c ]; then
+            sed -i '/#include "macTrace.h"/a #define P2P_NOT_ACTIVE 0\n#define P2P_GO_NEG_PROCESS 1\n#define P2P_GO_NEG_COMPLETED 2\n#define P2P_CLIENT_CONNECTING_STATE_1 3\n#define P2P_GO_COMPLETED_STATE 4\n#define P2P_CLIENT_CONNECTED_STATE_1 5\n#define P2P_CLIENT_DISCONNECTED_STATE 6\n#define P2P_CLIENT_CONNECTING_STATE_2 7\n#define P2P_CLIENT_COMPLETED_STATE 8' drivers/staging/prima/CORE/SYS/legacy/src/utils/src/macTrace.c
           fi
-
-          # 1. Kernel image + device trees
+          
+          # Step 1: Compile base kernel tree 
           make -j$(nproc) O=out ARCH=arm64 CLANG_TRIPLE=aarch64-linux-gnu-
-
-          # 2. In-tree modules
+          
+          # Step 2: Compile native modules
           make -j$(nproc) O=out ARCH=arm64 CLANG_TRIPLE=aarch64-linux-gnu- modules
+          
+          # Step 3: Compile Realtek module cleanly using proper environment indicators
+          cd drivers/net/wireless/rtl8812au
+          make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- KSRC="${{ github.workspace }}/kernel-source/out" modules
 
-          # 3. Prepare tree for external module builds
-          make O=out ARCH=arm64 CLANG_TRIPLE=aarch64-linux-gnu- modules_prepare
-
-          # 4. Out-of-tree rtl8812au
-          #    - CONFIG_88XXAU=m is required: with KERNELRELEASE set, the driver Makefile
-          #      only builds obj-$(CONFIG_88XXAU), which is otherwise undefined (empty build)
-          #    - CONFIG_PLATFORM_I386_PC=n overrides the x86 default platform
-          echo "=== Driver Makefile obj lines ==="
-          grep -nE "obj-|CONFIG_88XXAU|MODULE_NAME" drivers/rtl8812au/Makefile | head -n 20 || true
-
-          make -j$(nproc) -C out ARCH=arm64 \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            CC=clang \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
-            M="$KERNEL_ROOT/drivers/rtl8812au" \
-            CONFIG_88XXAU=m \
-            CONFIG_RTL8812AU=m \
-            CONFIG_PLATFORM_I386_PC=n \
-            modules V=1 2>&1 | tee "${{ github.workspace }}/rtl8812au-build.log"
-
-          echo "=== Built driver files ==="
-          ls -la "$KERNEL_ROOT"/drivers/rtl8812au/*.ko   # fails loudly if missing
-          modinfo "$KERNEL_ROOT"/drivers/rtl8812au/88XXau.ko | grep -E "vermagic|filename" || true
-
-      - name: Package with AnyKernel3
+      - name: Package with AnyKernel3 (Systemless Injection Layer)
         run: |
-          set -eo pipefail
-          cd ${{ github.workspace }}
-
-          rm -rf anykernel
           git clone https://github.com/osm0sis/AnyKernel3 -b master anykernel
-
-          # Locate kernel image
-          BOOT="$KERNEL_ROOT/out/arch/arm64/boot"
-          KERNEL_IMAGE=""
-          for f in Image.gz-dtb Image.gz Image; do
-            if [ -f "$BOOT/$f" ]; then KERNEL_IMAGE="$BOOT/$f"; break; fi
-          done
-          if [ -z "$KERNEL_IMAGE" ]; then
-            echo "Error: kernel image not found in $BOOT"
-            exit 1
-          fi
-          echo "Found kernel image at: $KERNEL_IMAGE"
-          cp "$KERNEL_IMAGE" "anykernel/$(basename "$KERNEL_IMAGE")"
-
-          # Stage modules
-          MODDIR=anykernel/modules/vendor/lib/modules
-          mkdir -p "$MODDIR"
-
-          # Out-of-tree driver (built name is 88XXau.ko; also copy under the name you expected)
-          cp "$KERNEL_ROOT/drivers/rtl8812au/88XXau.ko" "$MODDIR/88XXau.ko"
-          cp "$KERNEL_ROOT/drivers/rtl8812au/88XXau.ko" "$MODDIR/rtl88XXau.ko"
-
-          # In-tree modules (if any)
-          find "$KERNEL_ROOT/out" -name "*.ko" -exec cp {} "$MODDIR/" \;
-
-          echo "Files staged in AnyKernel3 modules:"
-          ls -la "$MODDIR"
-
+          
+          # Grab compiled image
+          KERNEL_IMAGE=$(find kernel-source/out -name "Image.gz-dtb" -o -name "Image.gz" -o -name "Image" | head -n 1)
+          cp "$KERNEL_IMAGE" anykernel/Image.gz
+          
+          # Setup modules location inside update container template wrapper
+          mkdir -p anykernel/modules/vendor/lib/modules/
+          find kernel-source -name "*.ko" -exec cp {} anykernel/modules/vendor/lib/modules/ \;
+          
+          # Update structural logic settings for dynamic target partition updates
           cd anykernel
           sed -i 's/do.modules=.*/do.modules=1/g' anykernel.sh
-          sed -i 's/device\.name1=.*/device.name1=gtowifi/g' anykernel.sh
-          sed -i 's|block=.*|block=/dev/block/bootdevice/by-name/boot;|g' anykernel.sh
-
+          sed -i 's/do.systemless=.*/do.systemless=1/g' anykernel.sh   # Enables systemless overlay creation
+          sed -i 's/device\.name1=.*/device\.name1=gtowifi/g' anykernel.sh
+          sed -i 's|block=.*|block=/dev/block/bootdevice/by-name/boot|g' anykernel.sh
+          
           rm -rf .git
           zip -r9 ../SM-T290-Lineage20-AnyKernel3-iam_devu.zip *
-          cd ${{ github.workspace }}
-
-          mkdir -p final_zip
-          mv SM-T290-Lineage20-AnyKernel3-iam_devu.zip final_zip/
 
       - name: Upload Flashable Zip Artifact
         uses: actions/upload-artifact@v4
         with:
           name: SM-T290-Lineage20-AnyKernel3-iam_devu
-          path: final_zip/*.zip
-
-      - name: Upload Driver Build Log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-logs
-          path: |
-            build-full.log
-            rtl8812au-build.log
-          if-no-files-found: ignore
+          path: ./*.zip
+          
