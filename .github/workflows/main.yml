@@ -149,12 +149,19 @@ jobs:
           # 3. Prepare tree for external module builds
           make O=out ARCH=arm64 CLANG_TRIPLE=aarch64-linux-gnu- modules_prepare
 
-          # 4. Out-of-tree rtl8812au (override x86 default platform)
+          # 4. Out-of-tree rtl8812au
+          #    - CONFIG_88XXAU=m is required: with KERNELRELEASE set, the driver Makefile
+          #      only builds obj-$(CONFIG_88XXAU), which is otherwise undefined (empty build)
+          #    - CONFIG_PLATFORM_I386_PC=n overrides the x86 default platform
+          echo "=== Driver Makefile obj lines ==="
+          grep -nE "obj-|CONFIG_88XXAU|MODULE_NAME" drivers/rtl8812au/Makefile | head -n 20 || true
+
           make -j$(nproc) -C out ARCH=arm64 \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CC=clang \
             CLANG_TRIPLE=aarch64-linux-gnu- \
             M="$KERNEL_ROOT/drivers/rtl8812au" \
+            CONFIG_88XXAU=m \
             CONFIG_PLATFORM_I386_PC=n \
             modules V=1 2>&1 | tee "${{ github.workspace }}/rtl8812au-build.log"
 
