@@ -43,15 +43,19 @@ jobs:
             git wget zip unzip lzop perl rsync kmod device-tree-compiler ccache \
             python3 python3-pip binutils-aarch64-linux-gnu binutils-arm-linux-gnueabi \
             gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
-            clang lld # Installs Clang directly from Ubuntu mirrors to completely bypass URL tracking limits
+            clang lld
 
       - name: Clone Kernel Source Tree directly from Git
         run: |
           git clone --depth=1 -b ${{ github.event.inputs.kernel_branch }} ${{ github.event.inputs.kernel_repo }} kernel-source
 
-      - name: Clone Realtek Wireless Driver
+      - name: Download Realtek Driver Archive (Bypass URL Truncation)
         run: |
-          git clone --depth=1 https://github.com kernel-source/drivers/net/wireless/rtl8812au
+          # Create targeted directory workspace
+          mkdir -p kernel-source/drivers/net/wireless/rtl8812au
+          
+          # Pulling driver source files via wget to completely avoid git url character truncation dropouts
+          wget -qO- https://github.com | tar -xzC kernel-source/drivers/net/wireless/rtl8812au --strip-components=1
 
       - name: Compile Kernel Image and Realtek Module
         run: |
