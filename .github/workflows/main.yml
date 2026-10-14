@@ -10,11 +10,11 @@ on:
       kernel_branch:
         description: 'Target Repository Branch'
         required: true
-        default: 'lineage-20.0'
+        default: 'lineage-20'  # Fixed branch name shorthand string matching AOSP trees
       defconfig_name:
         description: 'Target Defconfig File'
         required: true
-        default: 'lineageos_gtowifi_defconfig'
+        default: 'msm8937_defconfig'  # Adjusted to official defconfig naming structure
 
 jobs:
   build-kernel:
@@ -46,7 +46,7 @@ jobs:
 
       - name: Clone Kernel Source Tree directly from Git
         run: |
-          # Clones source workspace directly, removing all erratic zip extraction behaviors
+          # Clones source workspace branch tracking targeting cleanly
           git clone --depth=1 -b "${{ github.event.inputs.kernel_branch }}" "${{ github.event.inputs.kernel_repo }}" kernel-source
 
       - name: Clone Toolchain & Realtek Driver
