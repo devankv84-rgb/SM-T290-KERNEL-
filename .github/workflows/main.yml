@@ -87,6 +87,8 @@ jobs:
       - name: Compile Kernel Image, Modules, and Out-of-Tree Driver
         run: |
           set -eo pipefail
+          # Save everything this step prints so a failed build still leaves a log
+          exec > >(tee -a "${{ github.workspace }}/build-full.log") 2>&1
           cd "$KERNEL_ROOT"
 
           # Shim dir: the kernel Makefile passes --prefix=<dir of aarch64 ld/elfedit>, and
@@ -245,6 +247,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: rtl8812au-build-log
-          path: rtl8812au-build.log
+          name: build-logs
+          path: |
+            build-full.log
+            rtl8812au-build.log
           if-no-files-found: ignore
