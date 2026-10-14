@@ -45,7 +45,7 @@ jobs:
       - name: Download and Extract Kernel Source
         run: |
           FILE_ID="${{ github.event.inputs.drive_file_id }}"
-          gdown "https://drive.google.com/uc?id=$FILE_ID" -O kernel-source.zip
+          gdown "https://google.com" -O kernel-source.zip
           mkdir -p kernel-source
           unzip -q kernel-source.zip -d kernel-source
           
@@ -56,8 +56,8 @@ jobs:
 
       - name: Clone Toolchain & Realtek Driver
         run: |
-          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b toolchain-clang
-          git clone --depth=1 https://github.com/aircrack-ng/rtl8812au.git kernel-source/drivers/net/wireless/rtl8812au
+          git clone --depth=1 https://github.com toolchain-clang
+          git clone --depth=1 https://github.com kernel-source/drivers/net/wireless/rtl8812au
 
       - name: Compile Kernel Image and Realtek Module
         run: |
@@ -79,14 +79,17 @@ jobs:
           mkdir -p out
           echo "-iam_devu" > localversion
           
-          # Generate base configurations
+          # 1. Generate base configurations from defconfig
           make O=out ARCH=arm64 ${{ github.event.inputs.defconfig_name }}
           
-          # Append Network & MAC capability configurations safely
+          # 2. Append Network & MAC capability configurations safely
           sed -i 's/# CONFIG_CFG80211 is not set/CONFIG_CFG80211=m/g' out/.config
           echo "CONFIG_CFG80211=m" >> out/.config
           echo "CONFIG_MAC80211=m" >> out/.config
           echo "CONFIG_COMPAT=y" >> out/.config
+          
+          # 3. AUTO-ACCEPT NEW SUB-CONFIG PROMPTS (Fixes the Minstrel Abort Error)
+          make O=out ARCH=arm64 olddefconfig
           
           # Inject stability fixes into legacy device staging areas
           if [ -f drivers/staging/prima/CORE/SYS/legacy/src/utils/src/macTrace.c ]; then
@@ -105,7 +108,7 @@ jobs:
 
       - name: Package with AnyKernel3 (Systemless Injection Layer)
         run: |
-          git clone https://github.com/osm0sis/AnyKernel3 -b master anykernel
+          git clone https://github.com -b master anykernel
           
           # Grab compiled image
           KERNEL_IMAGE=$(find kernel-source/out -name "Image.gz-dtb" -o -name "Image.gz" -o -name "Image" | head -n 1)
