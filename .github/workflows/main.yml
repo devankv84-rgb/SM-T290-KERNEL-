@@ -49,12 +49,14 @@ jobs:
         run: |
           git clone --depth=1 -b ${{ github.event.inputs.kernel_branch }} ${{ github.event.inputs.kernel_repo }} kernel-source
 
-      - name: Download Realtek Driver Archive (Bypass URL Truncation)
+      - name: Clone Realtek Driver directly from Git
         run: |
-          mkdir -p kernel-source/drivers/net/wireless/rtl8812au
+          # Cleans up the workspace layout path explicitly using a dedicated execution block
+          git clone --depth=1 https://github.com rtl8812au_driver
           
-          # Targeted a highly stable master release structure mirror that safely triggers direct stream processing blocks
-          curl -sL https://github.com | tar -xzC kernel-source/drivers/net/wireless/rtl8812au --strip-components=1
+          # Manually relocate driver target directories using stable directory moving rules
+          mkdir -p kernel-source/drivers/net/wireless/rtl8812au
+          cp -r rtl8812au_driver/* kernel-source/drivers/net/wireless/rtl8812au/
 
       - name: Compile Kernel Image and Realtek Module
         run: |
