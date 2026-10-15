@@ -95,10 +95,6 @@ jobs:
           echo "--- Final config check ---"
           grep -E "^CONFIG_(MODULES|CFG80211|WLAN|COMPAT)=" out/.config
 
-          if [ -f drivers/staging/prima/CORE/SYS/legacy/src/utils/src/macTrace.c ]; then
-            sed -i '/#include "macTrace.h"/a #define P2P_NOT_ACTIVE 0\n#define P2P_GO_NEG_PROCESS 1\n#define P2P_GO_NEG_COMPLETED 2\n#define P2P_CLIENT_CONNECTING_STATE_1 3\n#define P2P_GO_COMPLETED_STATE 4\n#define P2P_CLIENT_CONNECTED_STATE_1 5\n#define P2P_CLIENT_DISCONNECTED_STATE 6\n#define P2P_CLIENT_CONNECTING_STATE_2 7\n#define P2P_CLIENT_COMPLETED_STATE 8' drivers/staging/prima/CORE/SYS/legacy/src/utils/src/macTrace.c
-          fi
-
           # 3. Kernel image + in-tree modules
           make -j$(nproc) O=out ARCH=arm64
           make -j$(nproc) O=out ARCH=arm64 modules
@@ -108,7 +104,6 @@ jobs:
           export ARCH=arm64
           export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
-          export CC=clang
           export KCFLAGS="-w -Wno-error -gdwarf-4 -gno-record-gcc-switches"
 
           KSRC="$GITHUB_WORKSPACE/kernel-source"
@@ -120,7 +115,7 @@ jobs:
           # Both common top-level symbol names are set; whichever the Makefile
           # uses will resolve to =m.
           make -C "$KSRC" O="$KOUT" M="$DRV" \
-            ARCH=arm64 CROSS_COMPILE=$CROSS_COMPILE CC=clang \
+            ARCH=arm64 CROSS_COMPILE=$CROSS_COMPILE \
             CONFIG_PLATFORM_I386_PC=n \
             CONFIG_RTL8812AU_8821AU=m \
             CONFIG_RTL8812AU=m \
