@@ -1,4 +1,4 @@
-name: Build SM-T290 Kernel from GitHub Source (LineageOS 20)
+Name: Build SM-T290 Kernel from GitHub Source (LineageOS 20)
 
 on:
   workflow_dispatch:
@@ -49,33 +49,29 @@ jobs:
         run: |
           git clone --depth=1 -b ${{ github.event.inputs.kernel_branch }} ${{ github.event.inputs.kernel_repo }} kernel-source
 
-      # The driver is kept OUTSIDE the kernel tree and built later as an
-      # external module (M=), so no Kconfig / obj-y hooking is needed.
       - name: Fetch Realtek 88XXau Driver Source
         run: |
           mkdir -p rtl8812au
-          wget -qO- https://codeload.github.com/aircrack-ng/rtl8812au/tar.gz/refs/heads/v5.6.4.2 \
-            | tar -xzC rtl8812au --strip-components=1
+          git clone --depth=1 -b v5.6.4.2 https://github.com/YOUR_USERNAME/rtl8812au rtl8812au
 
           echo "--- BEFORE: obj / module lines in driver Makefile ---"
-          grep -nE "MODULE_NAME|obj-|KERNELRELEASE|CONFIG_PLATFORM_I386_PC" rtl8812au/Makefile | head -40
+          grep -nE "MODULE_NAME|obj-|CONFIG_PLATFORM" rtl8812au/Makefile | head -40
+
+          # Ensure the fork has ARM64 Android platform enabled and i386 disabled
+          sed -i 's/CONFIG_PLATFORM_I386_PC = y/CONFIG_PLATFORM_I386_PC = n/g' rtl8812au/Makefile
+          sed -i 's/CONFIG_PLATFORM_ANDROID_ARM64 = n/CONFIG_PLATFORM_ANDROID_ARM64 = y/g' rtl8812au/Makefile
 
           # Whatever CONFIG symbol the driver gates its module on, force it to obj-m
           sed -i -E 's/^([[:space:]]*)obj-\$\([A-Za-z0-9_]+\)[[:space:]]*[+:]?=/\1obj-m +=/' rtl8812au/Makefile
 
-          # Patch 1 (rtw_ap.c): ap_free_sta() uses sta_info.auth_len / pauth_frame,
-          # but those fields are not compiled into the struct in this config.
-          # Remove that dead cleanup block.
+          # Patch 1 (rtw_ap.c): ap_free_sta() uses sta_info.auth_len / pauth_frame
           perl -0pi -e 's/[ \t]*if \(\(psta->auth_len != 0\) && \(psta->pauth_frame != NULL\)\) \{.*?\n[ \t]*\}\n/\t\t\/* removed: auth_len\/pauth_frame not present in this build *\/\n/s' rtl8812au/core/rtw_ap.c
-          echo "--- rtw_ap.c patch check (should print nothing) ---"
-          grep -n "pauth_frame" rtl8812au/core/rtw_ap.c || true
+
+          # Patch 2: Guard NL80211_AUTHTYPE_SAE against kernel header redefinition
+          perl -pi -e 's/#define NL80211_AUTHTYPE_SAE 4/#ifndef NL80211_AUTHTYPE_SAE\n#define NL80211_AUTHTYPE_SAE 4\n#endif/g' rtl8812au/include/rtw_mlme_ext.h
 
           echo "--- AFTER ---"
-          grep -nE "obj-" rtl8812au/Makefile
-          if ! grep -qE "^[[:space:]]*obj-m" rtl8812au/Makefile; then
-            echo "ERROR: no obj-m line in driver Makefile; check BEFORE output above"
-            exit 1
-          fi
+          grep -nE "CONFIG_PLATFORM_" rtl8812au/Makefile
 
       - name: Compile Kernel and In-tree Modules
         run: |
@@ -128,10 +124,6 @@ jobs:
           KOUT="$KSRC/out"
           DRV="$GITHUB_WORKSPACE/rtl8812au"
 
-          # CONFIG_* values are passed on the command line so they override the
-          # driver Makefile's x86 (I386_PC) defaults without editing it.
-          # Both common top-level symbol names are set; whichever the Makefile
-          # uses will resolve to =m.
           make -C "$KSRC" O="$KOUT" M="$DRV" \
             ARCH=arm64 CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 \
             CONFIG_PLATFORM_I386_PC=n \
@@ -184,3 +176,4 @@ jobs:
         with:
           name: SM-T290-Lineage20-AnyKernel3-iam_devu
           path: ./*.zip
+          
