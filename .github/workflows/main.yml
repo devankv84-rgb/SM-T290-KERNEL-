@@ -51,12 +51,10 @@ jobs:
 
       - name: Deploy Driver via String Construction
         run: |
-          # Split up domain components into distinct sub-variables to outsmart truncation filters entirely
-          BASE_DOM="codeload.github.com"
+          BASE_DOM="://github.com"
           PROJ_PATH="aircrack-ng/rtl8812au/tar.gz/refs/heads/v5.6.4.2"
           
           mkdir -p kernel-source/drivers/net/wireless/rtl8812au
-          
           echo "Downloading Realtek wireless components systemless-ly..."
           wget -qO- "https://${BASE_DOM}/${PROJ_PATH}" | tar -xzC kernel-source/drivers/net/wireless/rtl8812au --strip-components=1
           echo "Driver files staged cleanly without using git URLs."
@@ -68,7 +66,7 @@ jobs:
           # Target cross-compilation system definitions using native environment binaries
           export ARCH=arm64
           export SUBARCH=arm64
-          export KCFLAGS="-w -Wno-error -Wno-unused-command-line-argument"
+          export KCFLAGS="-w -Wno-error" # Stripped the Clang-only command line argument flag to safe-proof fallback calls
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
           export CC=clang
@@ -95,13 +93,13 @@ jobs:
             sed -i '/#include "macTrace.h"/a #define P2P_NOT_ACTIVE 0\n#define P2P_GO_NEG_PROCESS 1\n#define P2P_GO_NEG_COMPLETED 2\n#define P2P_CLIENT_CONNECTING_STATE_1 3\n#define P2P_GO_COMPLETED_STATE 4\n#define P2P_CLIENT_CONNECTED_STATE_1 5\n#define P2P_CLIENT_DISCONNECTED_STATE 6\n#define P2P_CLIENT_CONNECTING_STATE_2 7\n#define P2P_CLIENT_COMPLETED_STATE 8' drivers/staging/prima/CORE/SYS/legacy/src/utils/src/macTrace.c
           fi
           
-          # Build target components natively 
+          # Build core kernel components natively 
           make -j$(nproc) O=out ARCH=arm64
           make -j$(nproc) O=out ARCH=arm64 modules
           
-          # Build external out-of-tree hardware module
+          # Build external out-of-tree hardware module (Explicitly binding target Clang parameters)
           cd drivers/net/wireless/rtl8812au
-          make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- KSRC="${{ github.workspace }}/kernel-source/out" modules
+          make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC=clang CLANG_TRIPLE=aarch64-linux-gnu- KSRC="${{ github.workspace }}/kernel-source/out" modules
 
       - name: Package with AnyKernel3 (Systemless Injection Layer)
         run: |
