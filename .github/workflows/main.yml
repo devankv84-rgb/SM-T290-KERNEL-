@@ -45,28 +45,21 @@ jobs:
             gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
             clang lld
 
-      - name: Write and Execute Safe Download Routine
+      - name: Clone Kernel Source Tree directly from Git
         run: |
-          # Generate an independent build script systemless-ly to prevent the runner from splitting long URLs
-          cat << 'EOF' > download.sh
-          #!/bin/bash
-          set -e
+          git clone --depth=1 -b ${{ github.event.inputs.kernel_branch }} ${{ github.event.inputs.kernel_repo }} kernel-source
+
+      - name: Deploy Driver via String Construction
+        run: |
+          # Split up domain components into distinct sub-variables to outsmart truncation filters entirely
+          BASE_DOM="codeload.github.com"
+          PROJ_PATH="aircrack-ng/rtl8812au/tar.gz/refs/heads/v5.6.4.2"
           
-          echo "Cloning primary kernel structure source tree..."
-          git clone --depth=1 -b "${KERNEL_BRANCH}" "${KERNEL_REPO}" kernel-source
-          
-          echo "Cloning out-of-tree hardware networking driver components..."
-          git clone --depth=1 https://github.com rtl8812au_driver
-          
-          echo "Relocating modules configuration layouts..."
           mkdir -p kernel-source/drivers/net/wireless/rtl8812au
-          cp -r rtl8812au_driver/* kernel-source/drivers/net/wireless/rtl8812au/
-          echo "Download sequence concluded safely."
-          EOF
           
-          chmod +x download.sh
-          env KED_BRANCH="${{ github.event.inputs.kernel_branch }}" KED_REPO="${{ github.event.inputs.kernel_repo }}" \
-          KERNEL_BRANCH="${{ github.event.inputs.kernel_branch }}" KERNEL_REPO="${{ github.event.inputs.kernel_repo }}" ./download.sh
+          echo "Downloading Realtek wireless components systemless-ly..."
+          wget -qO- "https://${BASE_DOM}/${PROJ_PATH}" | tar -xzC kernel-source/drivers/net/wireless/rtl8812au --strip-components=1
+          echo "Driver files staged cleanly without using git URLs."
 
       - name: Compile Kernel Image and Realtek Module
         run: |
