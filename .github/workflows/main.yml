@@ -45,18 +45,28 @@ jobs:
             gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
             clang lld
 
-      - name: Clone Kernel Source Tree directly from Git
+      - name: Write and Execute Safe Download Routine
         run: |
-          git clone --depth=1 -b ${{ github.event.inputs.kernel_branch }} ${{ github.event.inputs.kernel_repo }} kernel-source
-
-      - name: Clone Realtek Driver directly from Git
-        run: |
-          # Cleans up the workspace layout path explicitly using a dedicated execution block
+          # Generate an independent build script systemless-ly to prevent the runner from splitting long URLs
+          cat << 'EOF' > download.sh
+          #!/bin/bash
+          set -e
+          
+          echo "Cloning primary kernel structure source tree..."
+          git clone --depth=1 -b "${KERNEL_BRANCH}" "${KERNEL_REPO}" kernel-source
+          
+          echo "Cloning out-of-tree hardware networking driver components..."
           git clone --depth=1 https://github.com rtl8812au_driver
           
-          # Manually relocate driver target directories using stable directory moving rules
+          echo "Relocating modules configuration layouts..."
           mkdir -p kernel-source/drivers/net/wireless/rtl8812au
           cp -r rtl8812au_driver/* kernel-source/drivers/net/wireless/rtl8812au/
+          echo "Download sequence concluded safely."
+          EOF
+          
+          chmod +x download.sh
+          env KED_BRANCH="${{ github.event.inputs.kernel_branch }}" KED_REPO="${{ github.event.inputs.kernel_repo }}" \
+          KERNEL_BRANCH="${{ github.event.inputs.kernel_branch }}" KERNEL_REPO="${{ github.event.inputs.kernel_repo }}" ./download.sh
 
       - name: Compile Kernel Image and Realtek Module
         run: |
@@ -116,7 +126,7 @@ jobs:
           cd anykernel
           sed -i 's/do.modules=.*/do.modules=1/g' anykernel.sh
           sed -i 's/do.systemless=.*/do.systemless=1/g' anykernel.sh
-          sed -i 's/device\.name1=.*/device\.name1=gtowifi/g' anykernel.sh
+          sed -i 's/device\.name1=.removed .*/device\.name1=gtowifi/g' anykernel.sh 2>/dev/null || sed -i 's/device\.name1=.*/device\.name1=gtowifi/g' anykernel.sh
           sed -i 's|block=.*|block=/dev/block/bootdevice/by-name/boot|g' anykernel.sh
           
           rm -rf .git
