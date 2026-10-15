@@ -71,6 +71,9 @@ jobs:
           export HOSTCC=gcc
           export HOSTCXX=g++
           
+          # Patch expr parsing runtime bugs within old kernel Makefiles to bypass script validation warnings
+          sed -i 's/expr length/expr/g' Makefile 2>/dev/null || true
+          
           mkdir -p out
           echo "-iam_devu" > localversion
           
@@ -102,10 +105,10 @@ jobs:
           sed -i 's|\$(src)/hal|\$(USER_MODULE_SRC)/hal|g' Makefile
           sed -i 's|include/hal|include/\$(USER_MODULE_SRC)/hal|g' Makefile 2>/dev/null || true
           
-          # Directly inject missing layout variables right into the core header configuration file
-          sed -i '1s/^/#define DRV_NAME "rtl8812au"\n#define DRIVERVERSION "5.6.4.2"\n#define CONFIG_TXPWR_BY_RATE 0\n/' include/autoconf.h
+          # Directly target the Android configuration header to cleanly inject variables without missing directory errors
+          sed -i '1s/^/#define DRV_NAME "rtl8812au"\n#define DRIVERVERSION "5.6.4.2"\n#define CONFIG_TXPWR_BY_RATE 0\n/' include/rtw_android.h
 
-          # Execute out-of-tree module compilationpass
+          # Execute out-of-tree module compilation pass
           make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC=clang \
             AS=aarch64-linux-gnu-as \
             USER_MODULE_SRC="$PWD" \
