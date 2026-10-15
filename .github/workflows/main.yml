@@ -71,8 +71,8 @@ jobs:
           # Patch 2: Guard NL80211_AUTHTYPE_SAE against kernel header redefinition
           perl -pi -e 's/#define NL80211_AUTHTYPE_SAE 4/#ifndef NL80211_AUTHTYPE_SAE\n#define NL80211_AUTHTYPE_SAE 4\n#endif/g' rtl8812au/include/rtw_mlme_ext.h
 
-          # Patch 3: cfg80211_roamed signature mismatch for newer kernels
-          perl -0pi -e 's/cfg80211_roamed\(padapter->pnetdev[^\)]*\)/{ struct cfg80211_roam_info roam_info = {0}; cfg80211_roamed(padapter->pnetdev, &roam_info, GFP_ATOMIC); }/s' rtl8812au/os_dep/linux/ioctl_cfg80211.c
+          # Patch 3: Robust cfg80211_roamed signature patch for newer kernels
+          perl -0pi -e 's/cfg80211_roamed\s*\([\s\S]*?\);/struct cfg80211_roam_info roam_info = {0};\n\t\tcfg80211_roamed(padapter->pnetdev, &roam_info, GFP_ATOMIC);/g' rtl8812au/os_dep/linux/ioctl_cfg80211.c
 
           echo "--- AFTER ---"
           grep -nE "CONFIG_PLATFORM_" rtl8812au/Makefile
