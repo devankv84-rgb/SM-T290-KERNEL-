@@ -63,6 +63,13 @@ jobs:
           # Whatever CONFIG symbol the driver gates its module on, force it to obj-m
           sed -i -E 's/^([[:space:]]*)obj-\$\([A-Za-z0-9_]+\)[[:space:]]*[+:]?=/\1obj-m +=/' rtl8812au/Makefile
 
+          # Patch 1 (rtw_ap.c): ap_free_sta() uses sta_info.auth_len / pauth_frame,
+          # but those fields are not compiled into the struct in this config.
+          # Remove that dead cleanup block.
+          perl -0pi -e 's/[ \t]*if \(\(psta->auth_len != 0\) && \(psta->pauth_frame != NULL\)\) \{.*?\n[ \t]*\}\n/\t\t\/* removed: auth_len\/pauth_frame not present in this build *\/\n/s' rtl8812au/core/rtw_ap.c
+          echo "--- rtw_ap.c patch check (should print nothing) ---"
+          grep -n "pauth_frame" rtl8812au/core/rtw_ap.c || true
+
           echo "--- AFTER ---"
           grep -nE "obj-" rtl8812au/Makefile
           if ! grep -qE "^[[:space:]]*obj-m" rtl8812au/Makefile; then
