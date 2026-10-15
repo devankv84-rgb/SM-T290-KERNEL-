@@ -1,14 +1,14 @@
-name: Build SM-T290 Kernel from GitHub Source (LineageOS 20)
+name: Build SM-T290 Kernel from Source (LineageOS 20)
 
 on:
   workflow_dispatch:
     inputs:
-      kernel_repo:
-        description: 'Target Kernel Repository URL'
+      gdrive_file_id:
+        description: 'Google Drive File ID for Kernel Source Zip'
         required: true
-        default: 'https://github.com'
+        default: '1rc_ZbJjmgLEy37pWvefuRTBX15n0DUqN'
       kernel_branch:
-        description: 'Target Repository Branch'
+        description: 'Target Repository Branch (Reference)'
         required: true
         default: 'lineage-20'
       defconfig_name:
@@ -44,10 +44,14 @@ jobs:
             python3 python3-pip binutils-aarch64-linux-gnu binutils-arm-linux-gnueabi \
             gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
             clang lld
+          pip install --no-cache-dir gdown
 
-      - name: Clone Kernel Source Tree directly from Git
+      - name: Download and Extract Kernel Source from Google Drive
         run: |
-          git clone --depth=1 -b ${{ github.event.inputs.kernel_branch }} ${{ github.event.inputs.kernel_repo }} kernel-source
+          mkdir -p kernel-source
+          gdown '${{ github.event.inputs.gdrive_file_id }}' -O kernel-source.zip
+          unzip -q kernel-source.zip -d kernel-source
+          rm kernel-source.zip
 
       - name: Fetch Realtek 88XXau Driver Source
         run: |
