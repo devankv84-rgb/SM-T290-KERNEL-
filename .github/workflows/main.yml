@@ -55,9 +55,6 @@ jobs:
           wget -qO- https://codeload.github.com/aircrack-ng/rtl8812au/tar.gz/refs/heads/v5.6.4.2 \
             | tar -xzC rtl8812au --strip-components=1
 
-          echo "--- BEFORE: obj / module lines in driver Makefile ---"
-          grep -nE "MODULE_NAME|obj-|CONFIG_PLATFORM" rtl8812au/Makefile | head -40
-
           # Configure driver Makefile for Android ARM64 and disable i386
           sed -i 's/CONFIG_PLATFORM_I386_PC = y/CONFIG_PLATFORM_I386_PC = n/g' rtl8812au/Makefile
           sed -i 's/CONFIG_PLATFORM_ANDROID_ARM64 = n/CONFIG_PLATFORM_ANDROID_ARM64 = y/g' rtl8812au/Makefile || true
@@ -74,8 +71,18 @@ jobs:
           # Patch 3: Robust cfg80211_roamed signature patch for newer kernels
           perl -0pi -e 's/cfg80211_roamed\s*\([\s\S]*?\);/struct cfg80211_roam_info roam_info = {0};\n\t\tcfg80211_roamed(padapter->pnetdev, &roam_info, GFP_ATOMIC);/g' rtl8812au/os_dep/linux/ioctl_cfg80211.c
 
-          echo "--- AFTER ---"
-          grep -nE "CONFIG_PLATFORM_" rtl8812au/Makefile
+      - name: Integrate RTL8812AU In-Tree
+        run: |
+          mkdir -p kernel-source/drivers/net/wireless/realtek/rtl8812au
+          cp -r rtl8812au/* kernel-source/drivers/net/wireless/realtek/rtl8812au/
+
+          if ! grep -q "rtl8812au" kernel-source/drivers/net/wireless/realtek/Kconfig 2>/dev/null; then
+            echo 'source "drivers/net/wireless/realtek/rtl8812au/Kconfig"' >> kernel-source/drivers/net/wireless/realtek/Kconfig
+          fi
+
+          if ! grep -q "rtl8812au" kernel-source/drivers/net/wireless/realtek/Makefile 2>/dev/null; then
+            echo 'obj-$(CONFIG_RTL8812AU) += rtl8812au/' >> kernel-source/drivers/net/wireless/realtek/Makefile
+          fi
 
       - name: Compile Kernel and In-tree Modules
         run: |
@@ -99,6 +106,10 @@ jobs:
             sed -i '/CONFIG_CFG80211/d' out/.config
             echo "CONFIG_CFG80211=m" >> out/.config
           fi
+          if ! grep -qE "^CONFIG_RTL8812AU=(y|m)" out/.config; then
+            sed -i '/CONFIG_RTL8812AU/d' out/.config
+            echo "CONFIG_RTL8812AU=m" >> out/.config
+          fi
           sed -i '/CONFIG_MODULES[= ]/d' out/.config
           echo "CONFIG_MODULES=y" >> out/.config
           echo "CONFIG_MODULE_UNLOAD=y" >> out/.config
@@ -107,38 +118,6 @@ jobs:
           make O=out ARCH=arm64 olddefconfig
           make -j$(nproc) O=out ARCH=arm64
           make -j$(nproc) O=out ARCH=arm64 modules
-
-      - name: Build 88XXau.ko as External Module
-        run: |
-          export ARCH=arm64
-          export SUBARCH=arm64
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
-          export KCFLAGS="-w -Wno-error -gdwarf-4 -gno-record-gcc-switches"
-
-          KSRC="$GITHUB_WORKSPACE/kernel-source"
-          KOUT="$KSRC/out"
-          DRV="$GITHUB_WORKSPACE/rtl8812au"
-
-          make -C "$KSRC" O="$KOUT" M="$DRV" \
-            ARCH=arm64 CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 \
-            CONFIG_PLATFORM_I386_PC=n \
-            CONFIG_RTL8812AU_8821AU=m \
-            CONFIG_RTL8812AU=m \
-            modules 2>&1 | tee modules-88xxau.log
-
-          if ! find "$DRV" -name "88XXau.ko" | grep -q .; then
-            echo "ERROR: 88XXau.ko was not produced. See modules-88xxau.log"
-            exit 1
-          fi
-
-      - name: Upload Driver Build Log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: 88xxau-build-log
-          path: modules-88xxau.log
-          if-no-files-found: ignore
 
       - name: Package with AnyKernel3
         run: |
@@ -151,7 +130,6 @@ jobs:
 
           mkdir -p anykernel/modules/vendor/lib/modules/
           find kernel-source/out -name "*.ko" -exec cp {} anykernel/modules/vendor/lib/modules/ \;
-          cp rtl8812au/88XXau.ko anykernel/modules/vendor/lib/modules/
 
           echo "Staged modules:"
           ls -la anykernel/modules/vendor/lib/modules/
