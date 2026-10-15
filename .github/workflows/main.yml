@@ -57,8 +57,18 @@ jobs:
           wget -qO- https://codeload.github.com/aircrack-ng/rtl8812au/tar.gz/refs/heads/v5.6.4.2 \
             | tar -xzC rtl8812au --strip-components=1
 
-          echo "--- Module name / obj lines in driver Makefile ---"
-          grep -nE "MODULE_NAME|^obj-|CONFIG_PLATFORM_I386_PC|CONFIG_RTL88|CONFIG_RTL8812AU" rtl8812au/Makefile | head -40
+          echo "--- BEFORE: obj / module lines in driver Makefile ---"
+          grep -nE "MODULE_NAME|obj-|KERNELRELEASE|CONFIG_PLATFORM_I386_PC" rtl8812au/Makefile | head -40
+
+          # Whatever CONFIG symbol the driver gates its module on, force it to obj-m
+          sed -i -E 's/^([[:space:]]*)obj-\$\([A-Za-z0-9_]+\)[[:space:]]*[+:]?=/\1obj-m +=/' rtl8812au/Makefile
+
+          echo "--- AFTER ---"
+          grep -nE "obj-" rtl8812au/Makefile
+          if ! grep -qE "^[[:space:]]*obj-m" rtl8812au/Makefile; then
+            echo "ERROR: no obj-m line in driver Makefile; check BEFORE output above"
+            exit 1
+          fi
 
       - name: Compile Kernel and In-tree Modules
         run: |
