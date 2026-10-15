@@ -27,7 +27,7 @@ jobs:
         run: |
           echo "TZ=UTC" >> $GITHUB_ENV
           echo "CCACHE_DIR=${{ github.workspace }}/ccache" >> $GITHUB_ENV
-          
+
       - name: Cache Ccache
         uses: actions/cache@v4
         with:
@@ -49,33 +49,18 @@ jobs:
         run: |
           git clone --depth=1 -b ${{ github.event.inputs.kernel_branch }} ${{ github.event.inputs.kernel_repo }} kernel-source
 
-      - name: Inject Realtek Driver Natively into Kernel Tree
+      # The driver is kept OUTSIDE the kernel tree and built later as an
+      # external module (M=), so no Kconfig / obj-y hooking is needed.
+      - name: Fetch Realtek 88XXau Driver Source
         run: |
-          # Step 1: Create the target wireless staging directory natively inside the kernel framework
-          mkdir -p kernel-source/drivers/net/wireless/realtek/rtl8812au
-          
-          # Step 2: Fetch and extract the targeted Aircrack-ng master code source directly via Hex
-          HEX_URL=$(printf '\x68\x74\x74\x70\x73\x3a\x2f\x2f\x63\x6f\x64\x65\x6c\x6f\x61\x64\x2e\x67\x69\x74\x68\x75\x62\x2e\x63\x6f\x6d\x2f\x61\x69\x72\x63\x72\x61\x63\x6b\x2d\x6e\x67\x2f\x72\x74\x6c\x38\x38\x31\x32\x61\x75\x2f\x74\x61\x72\x2e\x67\x7a\x2f\x72\x65\x66\x73\x2f\x68\x65\x61\x64\x73\x2f\x76\x35\x2e\x36\x2e\x34\x2e\x32')
-          wget -qO- "$HEX_URL" | tar -xzC kernel-source/drivers/net/wireless/realtek/rtl8812au --strip-components=1
-          
-          # Step 3: Inject core definitions into the Android initialization header safely
-          sed -i '1s/^/#define DRV_NAME "rtl8812au"\n#define DRIVERVERSION "5.6.4.2"\n#define CONFIG_TXPWR_BY_RATE 0\n/' kernel-source/drivers/net/wireless/realtek/rtl8812au/include/rtw_android.h
+          mkdir -p rtl8812au
+          wget -qO- https://codeload.github.com/aircrack-ng/rtl8812au/tar.gz/refs/heads/v5.6.4.2 \
+            | tar -xzC rtl8812au --strip-components=1
 
-          # Step 4: Inject isolated, driver-specific local ccflags directly inside the Realtek Makefile to bypass global build tool crashes completely
-          cat << 'EOF' >> kernel-source/drivers/net/wireless/realtek/rtl8812au/Makefile
+          echo "--- Module name / obj lines in driver Makefile ---"
+          grep -nE "MODULE_NAME|^obj-|CONFIG_PLATFORM_I386_PC|CONFIG_RTL88|CONFIG_RTL8812AU" rtl8812au/Makefile | head -40
 
-          # Native inline optimization overrides for Android compilation environments
-          ccflags-y += -fintegrated-as -DASSOCIATE_ENTRY_NUM=32
-          ccflags-y += -I$(srctree)/drivers/net/wireless/realtek/rtl8812au/include
-          ccflags-y += -I$(srctree)/drivers/net/wireless/realtek/rtl8812au/core
-          ccflags-y += -I$(srctree)/drivers/net/wireless/realtek/rtl8812au/hal/phydm
-          EOF
-
-          # Step 5: Hook the folder path into the kernel's native build architecture
-          echo 'obj-$(CONFIG_RTL8812AU) += realtek/rtl8812au/' >> kernel-source/drivers/net/wireless/Makefile
-          echo 'source "drivers/net/wireless/realtek/rtl8812au/Kconfig"' >> kernel-source/drivers/net/wireless/Kconfig
-
-      - name: Compile Unified Kernel and Native Modules
+      - name: Compile Kernel and In-tree Modules
         run: |
           cd kernel-source
           export ARCH=arm64
@@ -86,54 +71,99 @@ jobs:
           export CC=clang
           export HOSTCC=gcc
           export HOSTCXX=g++
-          
+
           sed -i 's/expr length/expr/g' Makefile 2>/dev/null || true
           mkdir -p out
           echo "-iam_devu" > localversion
-          
-          # 1. Initialize config layout from base template mapping
+
+          # 1. Base config
           make O=out ARCH=arm64 ${{ github.event.inputs.defconfig_name }}
-          
-          # 2. Append Network & Realtek configuration flags directly to master config layer
-          sed -i 's/# CONFIG_CFG80211 is not set/CONFIG_CFG80211=m/g' out/.config
-          echo "CONFIG_CFG80211=m" >> out/.config
-          echo "CONFIG_MAC80211=m" >> out/.config
+
+          # 2. The driver needs cfg80211 (built-in or module). Only force =m if it is off.
+          if ! grep -qE "^CONFIG_CFG80211=(y|m)" out/.config; then
+            sed -i '/CONFIG_CFG80211/d' out/.config
+            echo "CONFIG_CFG80211=m" >> out/.config
+          fi
+          # Needed so the kernel can load external modules
+          sed -i '/CONFIG_MODULES[= ]/d' out/.config
+          echo "CONFIG_MODULES=y" >> out/.config
+          echo "CONFIG_MODULE_UNLOAD=y" >> out/.config
           echo "CONFIG_COMPAT=y" >> out/.config
-          echo "CONFIG_RTL8812AU=m" >> out/.config
-          
-          # 3. Automatically accept all new sub-feature configuration prompts
+
           make O=out ARCH=arm64 olddefconfig
-          
+
+          echo "--- Final config check ---"
+          grep -E "^CONFIG_(MODULES|CFG80211|WLAN|COMPAT)=" out/.config
+
           if [ -f drivers/staging/prima/CORE/SYS/legacy/src/utils/src/macTrace.c ]; then
             sed -i '/#include "macTrace.h"/a #define P2P_NOT_ACTIVE 0\n#define P2P_GO_NEG_PROCESS 1\n#define P2P_GO_NEG_COMPLETED 2\n#define P2P_CLIENT_CONNECTING_STATE_1 3\n#define P2P_GO_COMPLETED_STATE 4\n#define P2P_CLIENT_CONNECTED_STATE_1 5\n#define P2P_CLIENT_DISCONNECTED_STATE 6\n#define P2P_CLIENT_CONNECTING_STATE_2 7\n#define P2P_CLIENT_COMPLETED_STATE 8' drivers/staging/prima/CORE/SYS/legacy/src/utils/src/macTrace.c
           fi
-          
-          # 4. Compile core components and native modules cleanly in standard sequence blocks
+
+          # 3. Kernel image + in-tree modules
           make -j$(nproc) O=out ARCH=arm64
           make -j$(nproc) O=out ARCH=arm64 modules
 
-      - name: Package with AnyKernel3 (Hex Deployment Mode)
+      - name: Build 88XXau.ko as External Module
+        run: |
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CC=clang
+          export KCFLAGS="-w -Wno-error -gdwarf-4 -gno-record-gcc-switches"
+
+          KSRC="$GITHUB_WORKSPACE/kernel-source"
+          KOUT="$KSRC/out"
+          DRV="$GITHUB_WORKSPACE/rtl8812au"
+
+          # CONFIG_* values are passed on the command line so they override the
+          # driver Makefile's x86 (I386_PC) defaults without editing it.
+          # Both common top-level symbol names are set; whichever the Makefile
+          # uses will resolve to =m.
+          make -C "$KSRC" O="$KOUT" M="$DRV" \
+            ARCH=arm64 CROSS_COMPILE=$CROSS_COMPILE CC=clang \
+            CONFIG_PLATFORM_I386_PC=n \
+            CONFIG_RTL8812AU_8821AU=m \
+            CONFIG_RTL8812AU=m \
+            modules 2>&1 | tee modules-88xxau.log
+
+          echo "--- Built external modules ---"
+          find "$DRV" -name "*.ko" -ls
+
+          if ! find "$DRV" -name "88XXau.ko" | grep -q .; then
+            echo "ERROR: 88XXau.ko was not produced. See modules-88xxau.log"
+            exit 1
+          fi
+
+      - name: Upload Driver Build Log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: 88xxau-build-log
+          path: modules-88xxau.log
+          if-no-files-found: ignore
+
+      - name: Package with AnyKernel3
         run: |
           mkdir -p anykernel
-          HEX_AK3=$(printf '\x68\x74\x74\x70\x73\x3a\x2f\x2f\x63\x6f\x64\x65\x6c\x6f\x61\x64\x2e\x67\x69\x74\x68\x75\x62\x2e\x63\x6f\x6d\x2f\x6f\x73\x6d\x30\x73\x69\x73\x2f\x41\x6e\x79\x4b\x65\x72\x6e\x65\x6c\x33\x2f\x74\x61\x72\x2e\x67\x7a\x2f\x72\x65\x66\x73\x2f\x68\x65\x61\x64\x73\x2f\x6d\x61\x73\x74\x65\x72')
-          echo "Downloading AnyKernel3 framework components via stream layer..."
-          wget -qO- "$HEX_AK3" | tar -xzC anykernel --strip-components=1
-          
+          wget -qO- https://codeload.github.com/osm0sis/AnyKernel3/tar.gz/refs/heads/master \
+            | tar -xzC anykernel --strip-components=1
+
           KERNEL_IMAGE=$(find kernel-source/out -name "Image.gz-dtb" -o -name "Image.gz" -o -name "Image" | head -n 1)
           cp "$KERNEL_IMAGE" anykernel/Image.gz
-          
+
           mkdir -p anykernel/modules/vendor/lib/modules/
           find kernel-source/out -name "*.ko" -exec cp {} anykernel/modules/vendor/lib/modules/ \;
-          
-          echo "Staged binaries for installation deployment package container:"
+          cp rtl8812au/88XXau.ko anykernel/modules/vendor/lib/modules/
+
+          echo "Staged modules:"
           ls -la anykernel/modules/vendor/lib/modules/
-          
+
           cd anykernel
           sed -i 's/do.modules=.*/do.modules=1/g' anykernel.sh
           sed -i 's/do.systemless=.*/do.systemless=1/g' anykernel.sh
-          sed -i 's/device\.name1=.removed .*/device\.name1=gtowifi/g' anykernel.sh 2>/dev/null || sed -i 's/device\.name1=.*/device\.name1=gtowifi/g' anykernel.sh
+          sed -i 's/device\.name1=.*/device.name1=gtowifi/g' anykernel.sh
           sed -i 's|block=.*|block=/dev/block/bootdevice/by-name/boot|g' anykernel.sh
-          
+
           zip -r9 ../SM-T290-Lineage20-AnyKernel3-iam_devu.zip *
 
       - name: Upload Flashable Zip Artifact
@@ -141,4 +171,3 @@ jobs:
         with:
           name: SM-T290-Lineage20-AnyKernel3-iam_devu
           path: ./*.zip
-          
