@@ -98,12 +98,15 @@ jobs:
           # Build external out-of-tree hardware module
           cd drivers/net/wireless/rtl8812au
           
-          # Forced header include flag rules via USER_EXTRA_CFLAGS to bridge driver directory path targets perfectly
+          # Injected sed patches to rewrite internal include paths to target absolute variables cleanly
+          sed -i 's|\$(src)/hal|\$(USER_MODULE_SRC)/hal|g' Makefile
+          sed -i 's|include/hal|include/\$(USER_MODULE_SRC)/hal|g' Makefile 2>/dev/null || true
+          
+          # Build out-of-tree target with global include path rules mapped out explicitly
           make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC=clang \
             AS=aarch64-linux-gnu-as \
             USER_MODULE_SRC="$PWD" \
-            USER_EXTRA_CFLAGS="-fintegrated-as -I$PWD/include -I$PWD/core" \
-            EXTRA_CFLAGS="-fintegrated-as -I$PWD/include -I$PWD/core" \
+            EXTRA_CFLAGS="-fintegrated-as -I$PWD/include -I$PWD/core -I$PWD/hal/phydm -I$PWD/hal/phydm/halrf" \
             KSRC="${{ github.workspace }}/kernel-source/out" modules
 
       - name: Package with AnyKernel3 (Systemless Injection Layer)
