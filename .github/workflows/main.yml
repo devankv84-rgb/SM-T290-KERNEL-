@@ -95,10 +95,15 @@ jobs:
           make -j$(nproc) O=out ARCH=arm64
           make -j$(nproc) O=out ARCH=arm64 modules
           
-          # Build external out-of-tree hardware module (Explicitly binding the cross-assembler and integrated compiler tools)
+          # Build external out-of-tree hardware module
           cd drivers/net/wireless/rtl8812au
+          
+          # Forced header include flag rules via USER_EXTRA_CFLAGS to bridge driver directory path targets perfectly
           make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC=clang \
-            AS=aarch64-linux-gnu-as EXTRA_CFLAGS="-fintegrated-as" \
+            AS=aarch64-linux-gnu-as \
+            USER_MODULE_SRC="$PWD" \
+            USER_EXTRA_CFLAGS="-fintegrated-as -I$PWD/include -I$PWD/core" \
+            EXTRA_CFLAGS="-fintegrated-as -I$PWD/include -I$PWD/core" \
             KSRC="${{ github.workspace }}/kernel-source/out" modules
 
       - name: Package with AnyKernel3 (Systemless Injection Layer)
