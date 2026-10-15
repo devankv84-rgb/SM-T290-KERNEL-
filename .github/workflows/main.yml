@@ -102,11 +102,11 @@ jobs:
           sed -i 's|\$(src)/hal|\$(USER_MODULE_SRC)/hal|g' Makefile
           sed -i 's|include/hal|include/\$(USER_MODULE_SRC)/hal|g' Makefile 2>/dev/null || true
           
-          # Build out-of-tree target with global include path rules mapped out explicitly
+          # Force entry mapping definitions globally using explicit macro injection rules (-DASSOCIATE_ENTRY_NUM=32)
           make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC=clang \
             AS=aarch64-linux-gnu-as \
             USER_MODULE_SRC="$PWD" \
-            EXTRA_CFLAGS="-fintegrated-as -I$PWD/include -I$PWD/core -I$PWD/hal/phydm -I$PWD/hal/phydm/halrf" \
+            EXTRA_CFLAGS="-fintegrated-as -DASSOCIATE_ENTRY_NUM=32 -I$PWD/include -I$PWD/core -I$PWD/hal/phydm -I$PWD/hal/phydm/halrf" \
             KSRC="${{ github.workspace }}/kernel-source/out" modules
 
       - name: Package with AnyKernel3 (Systemless Injection Layer)
