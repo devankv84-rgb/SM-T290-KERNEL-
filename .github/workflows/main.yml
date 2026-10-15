@@ -1,4 +1,4 @@
-Name: Build SM-T290 Kernel from GitHub Source (LineageOS 20)
+name: Build SM-T290 Kernel from GitHub Source (LineageOS 20)
 
 on:
   workflow_dispatch:
@@ -52,19 +52,20 @@ jobs:
       - name: Fetch Realtek 88XXau Driver Source
         run: |
           mkdir -p rtl8812au
-          git clone --depth=1 -b v5.6.4.2 https://github.com/YOUR_USERNAME/rtl8812au rtl8812au
+          wget -qO- https://codeload.github.com/aircrack-ng/rtl8812au/tar.gz/refs/heads/v5.6.4.2 \
+            | tar -xzC rtl8812au --strip-components=1
 
           echo "--- BEFORE: obj / module lines in driver Makefile ---"
           grep -nE "MODULE_NAME|obj-|CONFIG_PLATFORM" rtl8812au/Makefile | head -40
 
-          # Ensure the fork has ARM64 Android platform enabled and i386 disabled
+          # Configure driver Makefile for Android ARM64 and disable i386
           sed -i 's/CONFIG_PLATFORM_I386_PC = y/CONFIG_PLATFORM_I386_PC = n/g' rtl8812au/Makefile
-          sed -i 's/CONFIG_PLATFORM_ANDROID_ARM64 = n/CONFIG_PLATFORM_ANDROID_ARM64 = y/g' rtl8812au/Makefile
+          sed -i 's/CONFIG_PLATFORM_ANDROID_ARM64 = n/CONFIG_PLATFORM_ANDROID_ARM64 = y/g' rtl8812au/Makefile || true
 
-          # Whatever CONFIG symbol the driver gates its module on, force it to obj-m
+          # Force object modules target
           sed -i -E 's/^([[:space:]]*)obj-\$\([A-Za-z0-9_]+\)[[:space:]]*[+:]?=/\1obj-m +=/' rtl8812au/Makefile
 
-          # Patch 1 (rtw_ap.c): ap_free_sta() uses sta_info.auth_len / pauth_frame
+          # Patch 1 (rtw_ap.c): ap_free_sta() cleanup block
           perl -0pi -e 's/[ \t]*if \(\(psta->auth_len != 0\) && \(psta->pauth_frame != NULL\)\) \{.*?\n[ \t]*\}\n/\t\t\/* removed: auth_len\/pauth_frame not present in this build *\/\n/s' rtl8812au/core/rtw_ap.c
 
           # Patch 2: Guard NL80211_AUTHTYPE_SAE against kernel header redefinition
@@ -89,26 +90,18 @@ jobs:
           mkdir -p out
           echo "-iam_devu" > localversion
 
-          # 1. Base config
           make O=out ARCH=arm64 ${{ github.event.inputs.defconfig_name }}
 
-          # 2. The driver needs cfg80211 (built-in or module). Only force =m if it is off.
           if ! grep -qE "^CONFIG_CFG80211=(y|m)" out/.config; then
             sed -i '/CONFIG_CFG80211/d' out/.config
             echo "CONFIG_CFG80211=m" >> out/.config
           fi
-          # Needed so the kernel can load external modules
           sed -i '/CONFIG_MODULES[= ]/d' out/.config
           echo "CONFIG_MODULES=y" >> out/.config
           echo "CONFIG_MODULE_UNLOAD=y" >> out/.config
           echo "CONFIG_COMPAT=y" >> out/.config
 
           make O=out ARCH=arm64 olddefconfig
-
-          echo "--- Final config check ---"
-          grep -E "^CONFIG_(MODULES|CFG80211|WLAN|COMPAT)=" out/.config
-
-          # 3. Kernel image + in-tree modules
           make -j$(nproc) O=out ARCH=arm64
           make -j$(nproc) O=out ARCH=arm64 modules
 
@@ -130,9 +123,6 @@ jobs:
             CONFIG_RTL8812AU_8821AU=m \
             CONFIG_RTL8812AU=m \
             modules 2>&1 | tee modules-88xxau.log
-
-          echo "--- Built external modules ---"
-          find "$DRV" -name "*.ko" -ls
 
           if ! find "$DRV" -name "88XXau.ko" | grep -q .; then
             echo "ERROR: 88XXau.ko was not produced. See modules-88xxau.log"
@@ -159,9 +149,6 @@ jobs:
           mkdir -p anykernel/modules/vendor/lib/modules/
           find kernel-source/out -name "*.ko" -exec cp {} anykernel/modules/vendor/lib/modules/ \;
           cp rtl8812au/88XXau.ko anykernel/modules/vendor/lib/modules/
-
-          echo "Staged modules:"
-          ls -la anykernel/modules/vendor/lib/modules/
 
           cd anykernel
           sed -i 's/do.modules=.*/do.modules=1/g' anykernel.sh
