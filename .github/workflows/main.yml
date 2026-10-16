@@ -80,7 +80,7 @@ jobs:
             perl -0pi -e 's/cfg80211_roamed\s*\([\s\S]*?\);/struct cfg80211_roam_info roam_info = {0};\n\t\tcfg80211_roamed(padapter->pnetdev, &roam_info, GFP_ATOMIC);/g' os_dep/linux/ioctl_cfg80211.c
           fi
           if [ -f "core/rtw_br_ext.c" ]; then
-            perl -0pi -e 's/#include <net\/ip.h>/#include <net\/ip.h>\n#ifndef IPX_NODE_LEN\nstruct ipx_addr {\n\t__be32 net;\n\t__u8 node[IPX_NODE_LEN];\n\t__be16 sock;\n};\nstruct ipxhdr {\n\t__be16 ipx_checksum;\n\t__be16 ipx_pktsize;\n\t__u8 ipx_tcnt;\n\t__u8 ipx_type;\n\tstruct ipx_addr ipx_source;\n\tstruct ipx_addr ipx_dest;\n};\n#endif/s' core/rtw_br_ext.c
+            perl -0pi -e 's/#include <net\/ip.h>/#include <net\/ip.h>\n#ifndef IPX_NODE_LEN\n#define IPX_NODE_LEN 6\nstruct ipx_addr {\n\t__be32 net;\n\t__u8 node[IPX_NODE_LEN];\n\t__be16 sock;\n};\nstruct ipxhdr {\n\t__be16 ipx_checksum;\n\t__be16 ipx_pktsize;\n\t__u8 ipx_tcnt;\n\t__u8 ipx_type;\n\tstruct ipx_addr ipx_source;\n\tstruct ipx_addr ipx_dest;\n};\n#endif/s' core/rtw_br_ext.c
           fi
 
       - name: Register RTL8812AU in Kernel Drivers Tree
