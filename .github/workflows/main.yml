@@ -63,15 +63,27 @@ jobs:
           mv rtl-temp/*/* rtl8812au/ 2>/dev/null || mv rtl-temp/* rtl8812au/
           rm -rf rtl-temp rtl-driver.zip
 
-      - name: Configure RTL Driver Makefile and Patches
+      - name: Configure RTL Driver Makefile, Kconfig, and Patches for In-Tree Build
         run: |
           cd rtl8812au
           sed -i 's/CONFIG_PLATFORM_I386_PC = y/CONFIG_PLATFORM_I386_PC = n/g' Makefile || true
           sed -i 's/CONFIG_PLATFORM_ANDROID_ARM64 = n/CONFIG_PLATFORM_ANDROID_ARM64 = y/g' Makefile || true
-          sed -i -E 's/^([[:space:]]*)obj-\$\([A-Za-z0-9_]+\)[[:space:]]*[+:]?=/\1obj-m +=/' Makefile || true
           
-          # Disable stack protector, implicit function declarations, and PIE/PIC to prevent relocation errors
+          # Force object targets to obj-y for built-in compilation
+          sed -i 's/obj-m/obj-y/g' Makefile
+          sed -i -E 's/^([[:space:]]*)obj-\$\([A-Za-z0-9_]+\)[[:space:]]*[+:]?=/\1obj-y +=/' Makefile || true
+          
+          # Disable stack protector, implicit function declarations, and PIE/PIC
           echo "EXTRA_CFLAGS += -fno-stack-protector -Wno-implicit-function-declaration -fno-pie -fno-pic" >> Makefile
+
+          # Create Kconfig for the driver folder
+          cat << 'EOF' > Kconfig
+          config RTL8812AU
+              bool "Realtek 8812AU USB WiFi support"
+              depends on USB
+              help
+                Support for Realtek 8812AU USB wireless adapters built-in.
+          EOF
 
           # Append stub definitions for unexported symbols
           cat << 'EOF' >> os_dep/linux/os_intfs.c
@@ -95,18 +107,22 @@ jobs:
             perl -0pi -e 's/#include <net\/ip.h>/#include <net\/ip.h>\n#ifndef IPX_NODE_LEN\n#define IPX_NODE_LEN 6\nstruct ipx_addr {\n\t__be32 net;\n\t__u8 node[IPX_NODE_LEN];\n\t__be16 sock;\n};\nstruct ipxhdr {\n\t__be16 ipx_checksum;\n\t__be16 ipx_pktsize;\n\t__u8 ipx_tcnt;\n\t__u8 ipx_type;\n\tstruct ipx_addr ipx_source;\n\tstruct ipx_addr ipx_dest;\n};\n#endif/s' core/rtw_br_ext.c
           fi
 
-      - name: Register RTL8812AU in Kernel Drivers Tree
+      - name: Register RTL8812AU In-Tree
         run: |
           cd kernel-source
           mkdir -p drivers/net/wireless/realtek/rtl8812au
           cp -r $GITHUB_WORKSPACE/rtl8812au/* drivers/net/wireless/realtek/rtl8812au/
+          
+          # Wire into parent Realtek Makefile and Kconfig
+          echo 'obj-y += rtl8812au/' >> drivers/net/wireless/realtek/Makefile
+          echo 'source "drivers/net/wireless/realtek/rtl8812au/Kconfig"' >> drivers/net/wireless/realtek/Kconfig
 
-      - name: Compile Core Kernel and Modules
+      - name: Compile Core Kernel and Built-in Driver
         run: |
           cd kernel-source
           export ARCH=arm64
           export SUBARCH=arm64
-          export KCFLAGS="-w -Wno-error -gdwarf-4 -gno-record-gcc-switches"
+          export KCFLAGS="-w -Wno-error -gdwarf-4 -gno-record-gcc-switches -fno-pic -fno-pie"
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
           export CC=clang
@@ -126,21 +142,20 @@ jobs:
 
           if ! grep -qE "^CONFIG_CFG80211=(y|m)" out/.config; then
             sed -i '/CONFIG_CFG80211/d' out/.config
-            echo "CONFIG_CFG80211=m" >> out/.config
+            echo "CONFIG_CFG80211=y" >> out/.config
           fi
           if grep -q "CONFIG_PRONTO_WLAN" out/.config; then
             sed -i '/CONFIG_PRONTO_WLAN/d' out/.config
-            echo "CONFIG_PRONTO_WLAN=m" >> out/.config
+            echo "CONFIG_PRONTO_WLAN=y" >> out/.config
           fi
-          sed -i '/CONFIG_MODULES[= ]/d' out/.config
-          echo "CONFIG_MODULES=y" >> out/.config
-          echo "CONFIG_MODULE_UNLOAD=y" >> out/.config
-          echo "CONFIG_COMPAT=y" >> out/.config
+          
+          # Enable driver as built-in statically
+          echo "CONFIG_RTL8812AU=y" >> out/.config
 
           # 1. Run olddefconfig first to establish base config
           make O=out ARCH=arm64 olddefconfig
 
-          # 2. Forcefully disable module signatures and version checking after olddefconfig
+          # 2. Forcefully disable module signatures and version checking
           sed -i 's/CONFIG_MODULE_SIG=y/# CONFIG_MODULE_SIG is not set/g' out/.config
           sed -i 's/CONFIG_MODULE_SIG_FORCE=y/# CONFIG_MODULE_SIG_FORCE is not set/g' out/.config
           sed -i 's/CONFIG_MODVERSIONS=y/# CONFIG_MODVERSIONS is not set/g' out/.config
@@ -152,33 +167,10 @@ jobs:
           # 3. Finalize config clean-up
           make O=out ARCH=arm64 olddefconfig
 
-          echo "=== VERIFYING MODULE CONFIG SETTINGS ==="
-          grep -E "CONFIG_MODULE_SIG|CONFIG_MODVERSIONS" out/.config || true
+          echo "=== VERIFYING BUILT-IN CONFIG SETTINGS ==="
+          grep -E "CONFIG_RTL8812AU|CONFIG_MODULE_SIG" out/.config || true
 
           make -j$(nproc) O=out ARCH=arm64
-          make -j$(nproc) O=out ARCH=arm64 modules
-
-      - name: Compile RTL8812AU Driver Explicitly
-        run: |
-          cd kernel-source
-          export ARCH=arm64
-          export SUBARCH=arm64
-          export KCFLAGS="-w -Wno-error -gdwarf-4 -gno-record-gcc-switches"
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
-          export CC=clang
-          export HOSTCC=gcc
-          export HOSTCXX=g++
-
-          make O=out ARCH=arm64 M=drivers/net/wireless/realtek/rtl8812au modules 2>&1 | tee rtl8812au-build.log
-
-      - name: Upload Driver Build Log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: rtl8812au-build-log
-          path: kernel-source/rtl8812au-build.log
-          if-no-files-found: ignore
 
       - name: Package with AnyKernel3
         run: |
@@ -189,17 +181,9 @@ jobs:
           KERNEL_IMAGE=$(find kernel-source/out -name "Image.gz-dtb" -o -name "Image.gz" -o -name "Image" | head -n 1)
           cp "$KERNEL_IMAGE" anykernel/Image.gz
 
+          # Stage other existing modules if any exist in out directory
           mkdir -p anykernel/modules/vendor/lib/modules/
           find kernel-source/out -name "*.ko" -exec cp {} anykernel/modules/vendor/lib/modules/ \;
-          
-          if [ -f "kernel-source/out/drivers/net/wireless/realtek/rtl8812au/88XXau.ko" ]; then
-            cp kernel-source/out/drivers/net/wireless/realtek/rtl8812au/88XXau.ko anykernel/modules/vendor/lib/modules/
-          elif [ -f "kernel-source/drivers/net/wireless/realtek/rtl8812au/88XXau.ko" ]; then
-            cp kernel-source/drivers/net/wireless/realtek/rtl8812au/88XXau.ko anykernel/modules/vendor/lib/modules/
-          fi
-
-          echo "Staged modules to vendor:"
-          ls -la anykernel/modules/vendor/lib/modules/
 
           cd anykernel
           sed -i 's/do.modules=.*/do.modules=1/g' anykernel.sh
