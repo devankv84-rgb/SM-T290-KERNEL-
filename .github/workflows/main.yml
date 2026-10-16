@@ -107,15 +107,22 @@ jobs:
             perl -0pi -e 's/#include <net\/ip.h>/#include <net\/ip.h>\n#ifndef IPX_NODE_LEN\n#define IPX_NODE_LEN 6\nstruct ipx_addr {\n\t__be32 net;\n\t__u8 node[IPX_NODE_LEN];\n\t__be16 sock;\n};\nstruct ipxhdr {\n\t__be16 ipx_checksum;\n\t__be16 ipx_pktsize;\n\t__u8 ipx_tcnt;\n\t__u8 ipx_type;\n\tstruct ipx_addr ipx_source;\n\tstruct ipx_addr ipx_dest;\n};\n#endif/s' core/rtw_br_ext.c
           fi
 
-      - name: Register RTL8812AU In-Tree
+      - name: Register RTL8812AU In-Tree and Place Kconfig at Top
         run: |
           cd kernel-source
           mkdir -p drivers/net/wireless/realtek/rtl8812au
           cp -r $GITHUB_WORKSPACE/rtl8812au/* drivers/net/wireless/realtek/rtl8812au/
           
-          # Wire into parent Realtek Makefile and Kconfig
+          # Wire into parent Realtek Makefile
           echo 'obj-y += rtl8812au/' >> drivers/net/wireless/realtek/Makefile
-          echo 'source "drivers/net/wireless/realtek/rtl8812au/Kconfig"' >> drivers/net/wireless/realtek/Kconfig
+          
+          # Properly place Kconfig source line at the top of Realtek's Kconfig
+          cd drivers/net/wireless/realtek
+          echo 'source "drivers/net/wireless/realtek/rtl8812au/Kconfig"' > Kconfig.new
+          if [ -f "Kconfig" ]; then
+            cat Kconfig >> Kconfig.new
+          fi
+          mv Kconfig.new Kconfig
 
       - name: Compile Core Kernel and Built-in Driver
         run: |
