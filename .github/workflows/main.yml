@@ -70,8 +70,8 @@ jobs:
           sed -i 's/CONFIG_PLATFORM_ANDROID_ARM64 = n/CONFIG_PLATFORM_ANDROID_ARM64 = y/g' Makefile || true
           sed -i -E 's/^([[:space:]]*)obj-\$\([A-Za-z0-9_]+\)[[:space:]]*[+:]?=/\1obj-m +=/' Makefile || true
           
-          # Disable stack protector to prevent missing __stack_chk_fail/guard references
-          echo "EXTRA_CFLAGS += -fno-stack-protector -Wno-implicit-function-declaration" >> Makefile
+          # Disable stack protector, implicit function declarations, and PIE/PIC to prevent relocation errors
+          echo "EXTRA_CFLAGS += -fno-stack-protector -Wno-implicit-function-declaration -fno-pie -fno-pic" >> Makefile
 
           # Append stub definitions for unexported symbols
           cat << 'EOF' >> os_dep/linux/os_intfs.c
@@ -189,17 +189,17 @@ jobs:
           KERNEL_IMAGE=$(find kernel-source/out -name "Image.gz-dtb" -o -name "Image.gz" -o -name "Image" | head -n 1)
           cp "$KERNEL_IMAGE" anykernel/Image.gz
 
-          mkdir -p anykernel/modules/system/lib/modules/
-          find kernel-source/out -name "*.ko" -exec cp {} anykernel/modules/system/lib/modules/ \;
+          mkdir -p anykernel/modules/vendor/lib/modules/
+          find kernel-source/out -name "*.ko" -exec cp {} anykernel/modules/vendor/lib/modules/ \;
           
           if [ -f "kernel-source/out/drivers/net/wireless/realtek/rtl8812au/88XXau.ko" ]; then
-            cp kernel-source/out/drivers/net/wireless/realtek/rtl8812au/88XXau.ko anykernel/modules/system/lib/modules/
+            cp kernel-source/out/drivers/net/wireless/realtek/rtl8812au/88XXau.ko anykernel/modules/vendor/lib/modules/
           elif [ -f "kernel-source/drivers/net/wireless/realtek/rtl8812au/88XXau.ko" ]; then
-            cp kernel-source/drivers/net/wireless/realtek/rtl8812au/88XXau.ko anykernel/modules/system/lib/modules/
+            cp kernel-source/drivers/net/wireless/realtek/rtl8812au/88XXau.ko anykernel/modules/vendor/lib/modules/
           fi
 
-          echo "Staged modules:"
-          ls -la anykernel/modules/system/lib/modules/
+          echo "Staged modules to vendor:"
+          ls -la anykernel/modules/vendor/lib/modules/
 
           cd anykernel
           sed -i 's/do.modules=.*/do.modules=1/g' anykernel.sh
