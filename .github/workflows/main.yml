@@ -137,11 +137,24 @@ jobs:
           echo "CONFIG_MODULE_UNLOAD=y" >> out/.config
           echo "CONFIG_COMPAT=y" >> out/.config
 
-          # Disable CONFIG_MODVERSIONS to prevent version/checksum mismatch rejections on module load
+          # 1. Run olddefconfig first to establish base config
+          make O=out ARCH=arm64 olddefconfig
+
+          # 2. Forcefully disable module signatures and version checking after olddefconfig
+          sed -i 's/CONFIG_MODULE_SIG=y/# CONFIG_MODULE_SIG is not set/g' out/.config
+          sed -i 's/CONFIG_MODULE_SIG_FORCE=y/# CONFIG_MODULE_SIG_FORCE is not set/g' out/.config
           sed -i 's/CONFIG_MODVERSIONS=y/# CONFIG_MODVERSIONS is not set/g' out/.config
+          sed -i '/CONFIG_MODULE_SIG_ALL/d' out/.config
+          echo "# CONFIG_MODULE_SIG is not set" >> out/.config
+          echo "# CONFIG_MODULE_SIG_FORCE is not set" >> out/.config
           echo "# CONFIG_MODVERSIONS is not set" >> out/.config
 
+          # 3. Finalize config clean-up
           make O=out ARCH=arm64 olddefconfig
+
+          echo "=== VERIFYING MODULE CONFIG SETTINGS ==="
+          grep -E "CONFIG_MODULE_SIG|CONFIG_MODVERSIONS" out/.config || true
+
           make -j$(nproc) O=out ARCH=arm64
           make -j$(nproc) O=out ARCH=arm64 modules
 
