@@ -73,6 +73,15 @@ jobs:
           # Disable stack protector to prevent missing __stack_chk_fail/guard references
           echo "EXTRA_CFLAGS += -fno-stack-protector -Wno-implicit-function-declaration" >> Makefile
 
+          # Append stub definitions for unexported symbols
+          cat << 'EOF' >> os_dep/linux/os_intfs.c
+
+          /* Stub definitions for unexported symbols */
+          void rtw_hal_pno_random_gen_mac_addr(void *adapter) { }
+          void rtw_hal_set_hw_mac_addr(void *adapter, void *addr) { }
+          void rtw_cfgvendor_rssi_monitor_evt(void *adapter, int len, void *data) { }
+          EOF
+
           if [ -f "core/rtw_ap.c" ]; then
             perl -0pi -e 's/[ \t]*if \(\(psta->auth_len != 0\) && \(psta->pauth_frame != NULL\)\) \{.*?\n[ \t]*\}\n/\t\t\/* removed: auth_len\/pauth_frame not present in this build *\/\n/s' core/rtw_ap.c
           fi
