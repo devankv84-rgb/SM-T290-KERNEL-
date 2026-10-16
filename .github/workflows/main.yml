@@ -63,8 +63,14 @@ jobs:
           cd rtl8812au
           sed -i 's/CONFIG_PLATFORM_I386_PC = y/CONFIG_PLATFORM_I386_PC = n/g' Makefile || true
           sed -i 's/CONFIG_PLATFORM_ANDROID_ARM64 = n/CONFIG_PLATFORM_ANDROID_ARM64 = y/g' Makefile || true
-          sed -i -E 's/^([[:space:]]*)obj-\$\([A-Za-z0-9_]+\)[[:space:]]*[+:]?=/\1obj-m +=/' Makefile || true
           
+          # Force the driver Makefile to configure object targets for in-tree built-in compilation (obj-y)
+          sed -i -E 's/^([[:space:]]*)obj-\$\([A-Za-z0-9_]+\)[[:space:]]*[+:]?=/\1obj-y +=/' Makefile || true
+          
+          # Fix relative include paths for O=out builds
+          sed -i 's|^include[[:space:]]\+\([^/$]\+\)|include $(src)/\1|g' Makefile
+          sed -i 's|include[[:space:]]\+hal/|include $(src)/hal/|g' Makefile
+
           # Apply -mcmodel=large and --pic-veneer exclusively to the driver Makefile
           echo "EXTRA_CFLAGS += -fno-stack-protector -Wno-implicit-function-declaration -mcmodel=large" >> Makefile
           echo "EXTRA_LDFLAGS += --pic-veneer" >> Makefile
@@ -97,12 +103,21 @@ jobs:
           mkdir -p drivers/net/wireless/realtek/rtl8812au
           cp -r $GITHUB_WORKSPACE/rtl8812au/* drivers/net/wireless/realtek/rtl8812au/
 
-      - name: Compile Core Kernel and Modules
+          # Hook rtl8812au into the parent Realtek driver Makefile
+          REALTEK_MAKEFILE="drivers/net/wireless/realtek/Makefile"
+          if [ -f "$REALTEK_MAKEFILE" ]; then
+            if ! grep -q "rtl8812au" "$REALTEK_MAKEFILE"; then
+              echo "obj-\$(CONFIG_RTL8812AU) += rtl8812au/" >> "$REALTEK_MAKEFILE"
+            fi
+          else
+            echo "obj-\$(CONFIG_RTL8812AU) += rtl8812au/" > "$REALTEK_MAKEFILE"
+          fi
+
+      - name: Compile Core Kernel and Built-in RTL8812AU Driver
         run: |
           cd kernel-source
           export ARCH=arm64
           export SUBARCH=arm64
-          # Global KCFLAGS excludes -mcmodel=large so EFI stub compilation succeeds
           export KCFLAGS="-w -Wno-error -gdwarf-4 -gno-record-gcc-switches"
           
           export HOSTCFLAGS="-w"
@@ -125,62 +140,35 @@ jobs:
 
           make O=out ARCH=arm64 ${{ github.event.inputs.defconfig_name }}
 
-          if ! grep -qE "^CONFIG_CFG80211=(y|m)" out/.config; then
-            sed -i '/CONFIG_CFG80211/d' out/.config
-            echo "CONFIG_CFG80211=m" >> out/.config
-          fi
+          # Force enable CFG80211 and RTL8812AU as built-in (=y) options
+          sed -i '/CONFIG_CFG80211/d' out/.config
+          echo "CONFIG_CFG80211=y" >> out/.config
+          
+          sed -i '/CONFIG_RTL8812AU/d' out/.config
+          echo "CONFIG_RTL8812AU=y" >> out/.config
+
           if grep -q "CONFIG_PRONTO_WLAN" out/.config; then
             sed -i '/CONFIG_PRONTO_WLAN/d' out/.config
             echo "CONFIG_PRONTO_WLAN=m" >> out/.config
           fi
-          sed -i '/CONFIG_MODULES[= ]/d' out/.config
-          echo "CONFIG_MODULES=y" >> out/.config
-          echo "CONFIG_MODULE_UNLOAD=y" >> out/.config
-          echo "CONFIG_COMPAT=y" >> out/.config
 
           make O=out ARCH=arm64 olddefconfig
 
+          # Disable module signatures/version checks for safety
           sed -i 's/CONFIG_MODULE_SIG=y/# CONFIG_MODULE_SIG is not set/g' out/.config
           sed -i 's/CONFIG_MODULE_SIG_FORCE=y/# CONFIG_MODULE_SIG_FORCE is not set/g' out/.config
           sed -i 's/CONFIG_MODVERSIONS=y/# CONFIG_MODVERSIONS is not set/g' out/.config
-          sed -i '/CONFIG_MODULE_SIG_ALL/d' out/.config
           echo "# CONFIG_MODULE_SIG is not set" >> out/.config
           echo "# CONFIG_MODULE_SIG_FORCE is not set" >> out/.config
           echo "# CONFIG_MODVERSIONS is not set" >> out/.config
 
           make O=out ARCH=arm64 olddefconfig
 
-          echo "=== STARTING FAST PARALLEL BUILD ==="
+          echo "=== STARTING IN-TREE KERNEL & DRIVER BUILD ==="
           if ! make -j$(nproc) O=out ARCH=arm64; then
-            echo "=== FAST BUILD FAILED: RE-RUNNING WITH 1 THREAD TO CAPTURE EXACT ERROR ==="
+            echo "=== BUILD FAILED: RE-RUNNING WITH 1 THREAD TO CAPTURE EXACT ERROR ==="
             make -j1 O=out ARCH=arm64
           fi
-          
-          make -j$(nproc) O=out ARCH=arm64 modules
-
-      - name: Compile RTL8812AU Driver Explicitly
-        run: |
-          cd kernel-source
-          export ARCH=arm64
-          export SUBARCH=arm64
-          export KCFLAGS="-w -Wno-error -gdwarf-4 -gno-record-gcc-switches"
-          export HOSTCFLAGS="-w"
-          export HOSTCXXFLAGS="-w"
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
-          export CC=clang
-          export HOSTCC=gcc
-          export HOSTCXX=g++
-
-          make O=out ARCH=arm64 M=drivers/net/wireless/realtek/rtl8812au modules 2>&1 | tee rtl8812au-build.log
-
-      - name: Upload Driver Build Log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: rtl8812au-build-log
-          path: kernel-source/rtl8812au-build.log
-          if-no-files-found: ignore
 
       - name: Package with AnyKernel3
         run: |
@@ -192,10 +180,6 @@ jobs:
           elif [ -f "../kernel-source/out/arch/arm64/boot/Image" ]; then
             cp ../kernel-source/out/arch/arm64/boot/Image .
           fi
-
-          mkdir -p modules/system/lib/modules
-          find ../kernel-source/out/ -name "*.ko" -exec cp {} modules/system/lib/modules/ \;
-          find ../kernel-source/drivers/net/wireless/realtek/rtl8812au/ -name "*.ko" -exec cp {} modules/system/lib/modules/ \;
 
           sed -i 's/do.devicecheck=1/do.devicecheck=0/g' anykernel.sh
           zip -r9 ../Kernel_SM-T290.zip * -x .git* README.md
