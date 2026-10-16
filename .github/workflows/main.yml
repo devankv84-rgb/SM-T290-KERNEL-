@@ -70,7 +70,7 @@ jobs:
           sed -i 's/CONFIG_PLATFORM_ANDROID_ARM64 = n/CONFIG_PLATFORM_ANDROID_ARM64 = y/g' Makefile || true
           sed -i -E 's/^([[:space:]]*)obj-\$\([A-Za-z0-9_]+\)[[:space:]]*[+:]?=/\1obj-m +=/' Makefile || true
           
-          # Fix relocation 275 failure via -mcmodel=large and allow veneer bridging via --pic-veneer
+          # Apply -mcmodel=large and --pic-veneer exclusively to the driver Makefile
           echo "EXTRA_CFLAGS += -fno-stack-protector -Wno-implicit-function-declaration -mcmodel=large" >> Makefile
           echo "EXTRA_LDFLAGS += --pic-veneer" >> Makefile
 
@@ -107,10 +107,9 @@ jobs:
           cd kernel-source
           export ARCH=arm64
           export SUBARCH=arm64
-          # Injected -mcmodel=large for full tree consistency
-          export KCFLAGS="-w -Wno-error -gdwarf-4 -gno-record-gcc-switches -mcmodel=large"
+          # Global KCFLAGS excludes -mcmodel=large so EFI stub compilation succeeds
+          export KCFLAGS="-w -Wno-error -gdwarf-4 -gno-record-gcc-switches"
           
-          # Fix modern host toolchain validation failures on old script architectures
           export HOSTCFLAGS="-w"
           export HOSTCXXFLAGS="-w"
           
@@ -144,10 +143,8 @@ jobs:
           echo "CONFIG_MODULE_UNLOAD=y" >> out/.config
           echo "CONFIG_COMPAT=y" >> out/.config
 
-          # 1. Run olddefconfig first to establish base config
           make O=out ARCH=arm64 olddefconfig
 
-          # 2. Forcefully disable module signatures and version checking after olddefconfig
           sed -i 's/CONFIG_MODULE_SIG=y/# CONFIG_MODULE_SIG is not set/g' out/.config
           sed -i 's/CONFIG_MODULE_SIG_FORCE=y/# CONFIG_MODULE_SIG_FORCE is not set/g' out/.config
           sed -i 's/CONFIG_MODVERSIONS=y/# CONFIG_MODVERSIONS is not set/g' out/.config
@@ -156,11 +153,7 @@ jobs:
           echo "# CONFIG_MODULE_SIG_FORCE is not set" >> out/.config
           echo "# CONFIG_MODVERSIONS is not set" >> out/.config
 
-          # 3. Finalize config clean-up
           make O=out ARCH=arm64 olddefconfig
-
-          echo "=== VERIFYING MODULE CONFIG SETTINGS ==="
-          grep -E "CONFIG_MODULE_SIG|CONFIG_MODVERSIONS" out/.config || true
 
           echo "=== STARTING FAST PARALLEL BUILD ==="
           if ! make -j$(nproc) O=out ARCH=arm64; then
@@ -175,13 +168,9 @@ jobs:
           cd kernel-source
           export ARCH=arm64
           export SUBARCH=arm64
-          # Added -mcmodel=large to match target space allocations
-          export KCFLAGS="-w -Wno-error -gdwarf-4 -gno-record-gcc-switches -mcmodel=large"
-          
-          # Maintain host suppression values here as well
+          export KCFLAGS="-w -Wno-error -gdwarf-4 -gno-record-gcc-switches"
           export HOSTCFLAGS="-w"
           export HOSTCXXFLAGS="-w"
-          
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
           export CC=clang
@@ -200,28 +189,25 @@ jobs:
 
       - name: Package with AnyKernel3
         run: |
-          git clone https://github.com AnyKernel3
+          git clone https://github.com/osm0sis/AnyKernel3 AnyKernel3
           cd AnyKernel3
           
-          # Copy the compiled kernel image if it exists
           if [ -f "../kernel-source/out/arch/arm64/boot/Image.gz-dtb" ]; then
             cp ../kernel-source/out/arch/arm64/boot/Image.gz-dtb .
           elif [ -f "../kernel-source/out/arch/arm64/boot/Image" ]; then
             cp ../kernel-source/out/arch/arm64/boot/Image .
           fi
 
-          # Collect all compiled modules including our out-of-tree target
           mkdir -p modules/system/lib/modules
           find ../kernel-source/out/ -name "*.ko" -exec cp {} modules/system/lib/modules/ \;
-          
-          # Ensure any variant path files are flattened cleanly into target
           find ../kernel-source/drivers/net/wireless/realtek/rtl8812au/ -name "*.ko" -exec cp {} modules/system/lib/modules/ \;
 
-          # Configuration for AnyKernel setup file
           sed -i 's/do.devicecheck=1/do.devicecheck=0/g' anykernel.sh
-           zip -r9 ../Kernel_SM-T290.zip * -x .git* README.md
-           - name: Upload Finished Flashable Kernel Zip
-           uses: actions/upload-artifact@v4
-          with:
-           name: Kernel_SM-T290-Flashable
-           path: Kernel_SM-T290.zip
+          zip -r9 ../Kernel_SM-T290.zip * -x .git* README.md
+
+      - name: Upload Finished Flashable Kernel Zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kernel_SM-T290-Flashable
+          path: Kernel_SM-T290.zip
+          
