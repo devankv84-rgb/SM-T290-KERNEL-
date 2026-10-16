@@ -162,7 +162,12 @@ jobs:
           echo "=== VERIFYING MODULE CONFIG SETTINGS ==="
           grep -E "CONFIG_MODULE_SIG|CONFIG_MODVERSIONS" out/.config || true
 
-          make -j$(nproc) O=out ARCH=arm64
+          echo "=== STARTING FAST PARALLEL BUILD ==="
+          if ! make -j$(nproc) O=out ARCH=arm64; then
+            echo "=== FAST BUILD FAILED: RE-RUNNING WITH 1 THREAD TO CAPTURE EXACT ERROR ==="
+            make -j1 O=out ARCH=arm64
+          fi
+          
           make -j$(nproc) O=out ARCH=arm64 modules
 
       - name: Compile RTL8812AU Driver Explicitly
@@ -214,9 +219,9 @@ jobs:
 
           # Configuration for AnyKernel setup file
           sed -i 's/do.devicecheck=1/do.devicecheck=0/g' anykernel.sh
-          
-          zip -r9 ../Kernel_SM-T290.zip * -x .git* README.md
-
-      - name: Upload Finished Flashable Kernel Zip
-        uses: actions/upload-artifact@v4
-      
+           zip -r9 ../Kernel_SM-T290.zip * -x .git* README.md
+           - name: Upload Finished Flashable Kernel Zip
+           uses: actions/upload-artifact@v4
+          with:
+           name: Kernel_SM-T290-Flashable
+           path: Kernel_SM-T290.zip
