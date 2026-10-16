@@ -109,6 +109,11 @@ jobs:
           export SUBARCH=arm64
           # Injected -mcmodel=large for full tree consistency
           export KCFLAGS="-w -Wno-error -gdwarf-4 -gno-record-gcc-switches -mcmodel=large"
+          
+          # Fix modern host toolchain validation failures on old script architectures
+          export HOSTCFLAGS="-w"
+          export HOSTCXXFLAGS="-w"
+          
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
           export CC=clang
@@ -165,8 +170,13 @@ jobs:
           cd kernel-source
           export ARCH=arm64
           export SUBARCH=arm64
-          # Crucial fix: Added -mcmodel=large here to map the module space matching the ARM64 Android layout constraints
+          # Added -mcmodel=large to match target space allocations
           export KCFLAGS="-w -Wno-error -gdwarf-4 -gno-record-gcc-switches -mcmodel=large"
+          
+          # Maintain host suppression values here as well
+          export HOSTCFLAGS="-w"
+          export HOSTCXXFLAGS="-w"
+          
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
           export CC=clang
@@ -209,7 +219,4 @@ jobs:
 
       - name: Upload Finished Flashable Kernel Zip
         uses: actions/upload-artifact@v4
-        with:
-          name: Kernel_SM-T290-Flashable
-          path: Kernel_SM-T290.zip
-          
+      
