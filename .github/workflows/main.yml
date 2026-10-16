@@ -63,27 +63,16 @@ jobs:
           mv rtl-temp/*/* rtl8812au/ 2>/dev/null || mv rtl-temp/* rtl8812au/
           rm -rf rtl-temp rtl-driver.zip
 
-      - name: Configure RTL Driver Makefile, Kconfig, and Patches for In-Tree Build
+      - name: Configure RTL Driver Makefile and Patches
         run: |
           cd rtl8812au
           sed -i 's/CONFIG_PLATFORM_I386_PC = y/CONFIG_PLATFORM_I386_PC = n/g' Makefile || true
           sed -i 's/CONFIG_PLATFORM_ANDROID_ARM64 = n/CONFIG_PLATFORM_ANDROID_ARM64 = y/g' Makefile || true
+          sed -i -E 's/^([[:space:]]*)obj-\$\([A-Za-z0-9_]+\)[[:space:]]*[+:]?=/\1obj-m +=/' Makefile || true
           
-          # Force object targets to obj-y for built-in compilation
-          sed -i 's/obj-m/obj-y/g' Makefile
-          sed -i -E 's/^([[:space:]]*)obj-\$\([A-Za-z0-9_]+\)[[:space:]]*[+:]?=/\1obj-y +=/' Makefile || true
-          
-          # Disable stack protector, implicit function declarations, and PIE/PIC
-          echo "EXTRA_CFLAGS += -fno-stack-protector -Wno-implicit-function-declaration -fno-pie -fno-pic" >> Makefile
-
-          # Create Kconfig for the driver folder
-          cat << 'EOF' > Kconfig
-          config RTL8812AU
-              bool "Realtek 8812AU USB WiFi support"
-              depends on USB
-              help
-                Support for Realtek 8812AU USB wireless adapters built-in.
-          EOF
+          # Fix relocation 275 failure via -mcmodel=large and allow veneer bridging via --pic-veneer
+          echo "EXTRA_CFLAGS += -fno-stack-protector -Wno-implicit-function-declaration -mcmodel=large" >> Makefile
+          echo "EXTRA_LDFLAGS += --pic-veneer" >> Makefile
 
           # Append stub definitions for unexported symbols
           cat << 'EOF' >> os_dep/linux/os_intfs.c
@@ -107,29 +96,19 @@ jobs:
             perl -0pi -e 's/#include <net\/ip.h>/#include <net\/ip.h>\n#ifndef IPX_NODE_LEN\n#define IPX_NODE_LEN 6\nstruct ipx_addr {\n\t__be32 net;\n\t__u8 node[IPX_NODE_LEN];\n\t__be16 sock;\n};\nstruct ipxhdr {\n\t__be16 ipx_checksum;\n\t__be16 ipx_pktsize;\n\t__u8 ipx_tcnt;\n\t__u8 ipx_type;\n\tstruct ipx_addr ipx_source;\n\tstruct ipx_addr ipx_dest;\n};\n#endif/s' core/rtw_br_ext.c
           fi
 
-      - name: Register RTL8812AU In-Tree and Place Kconfig at Top
+      - name: Register RTL8812AU in Kernel Drivers Tree
         run: |
           cd kernel-source
           mkdir -p drivers/net/wireless/realtek/rtl8812au
           cp -r $GITHUB_WORKSPACE/rtl8812au/* drivers/net/wireless/realtek/rtl8812au/
-          
-          # Wire into parent Realtek Makefile
-          echo 'obj-y += rtl8812au/' >> drivers/net/wireless/realtek/Makefile
-          
-          # Properly place Kconfig source line at the top of Realtek's Kconfig
-          cd drivers/net/wireless/realtek
-          echo 'source "drivers/net/wireless/realtek/rtl8812au/Kconfig"' > Kconfig.new
-          if [ -f "Kconfig" ]; then
-            cat Kconfig >> Kconfig.new
-          fi
-          mv Kconfig.new Kconfig
 
-      - name: Compile Core Kernel and Built-in Driver
+      - name: Compile Core Kernel and Modules
         run: |
           cd kernel-source
           export ARCH=arm64
           export SUBARCH=arm64
-          export KCFLAGS="-w -Wno-error -gdwarf-4 -gno-record-gcc-switches -fno-pic -fno-pie"
+          # Injected -mcmodel=large for full tree consistency
+          export KCFLAGS="-w -Wno-error -gdwarf-4 -gno-record-gcc-switches -mcmodel=large"
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
           export CC=clang
@@ -149,20 +128,21 @@ jobs:
 
           if ! grep -qE "^CONFIG_CFG80211=(y|m)" out/.config; then
             sed -i '/CONFIG_CFG80211/d' out/.config
-            echo "CONFIG_CFG80211=y" >> out/.config
+            echo "CONFIG_CFG80211=m" >> out/.config
           fi
           if grep -q "CONFIG_PRONTO_WLAN" out/.config; then
             sed -i '/CONFIG_PRONTO_WLAN/d' out/.config
-            echo "CONFIG_PRONTO_WLAN=y" >> out/.config
+            echo "CONFIG_PRONTO_WLAN=m" >> out/.config
           fi
-          
-          # Enable driver as built-in statically
-          echo "CONFIG_RTL8812AU=y" >> out/.config
+          sed -i '/CONFIG_MODULES[= ]/d' out/.config
+          echo "CONFIG_MODULES=y" >> out/.config
+          echo "CONFIG_MODULE_UNLOAD=y" >> out/.config
+          echo "CONFIG_COMPAT=y" >> out/.config
 
           # 1. Run olddefconfig first to establish base config
           make O=out ARCH=arm64 olddefconfig
 
-          # 2. Forcefully disable module signatures and version checking
+          # 2. Forcefully disable module signatures and version checking after olddefconfig
           sed -i 's/CONFIG_MODULE_SIG=y/# CONFIG_MODULE_SIG is not set/g' out/.config
           sed -i 's/CONFIG_MODULE_SIG_FORCE=y/# CONFIG_MODULE_SIG_FORCE is not set/g' out/.config
           sed -i 's/CONFIG_MODVERSIONS=y/# CONFIG_MODVERSIONS is not set/g' out/.config
@@ -174,35 +154,62 @@ jobs:
           # 3. Finalize config clean-up
           make O=out ARCH=arm64 olddefconfig
 
-          echo "=== VERIFYING BUILT-IN CONFIG SETTINGS ==="
-          grep -E "CONFIG_RTL8812AU|CONFIG_MODULE_SIG" out/.config || true
+          echo "=== VERIFYING MODULE CONFIG SETTINGS ==="
+          grep -E "CONFIG_MODULE_SIG|CONFIG_MODVERSIONS" out/.config || true
 
           make -j$(nproc) O=out ARCH=arm64
+          make -j$(nproc) O=out ARCH=arm64 modules
+
+      - name: Compile RTL8812AU Driver Explicitly
+        run: |
+          cd kernel-source
+          export ARCH=arm64
+          export SUBARCH=arm64
+          # Crucial fix: Added -mcmodel=large here to map the module space matching the ARM64 Android layout constraints
+          export KCFLAGS="-w -Wno-error -gdwarf-4 -gno-record-gcc-switches -mcmodel=large"
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          export CC=clang
+          export HOSTCC=gcc
+          export HOSTCXX=g++
+
+          make O=out ARCH=arm64 M=drivers/net/wireless/realtek/rtl8812au modules 2>&1 | tee rtl8812au-build.log
+
+      - name: Upload Driver Build Log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rtl8812au-build-log
+          path: kernel-source/rtl8812au-build.log
+          if-no-files-found: ignore
 
       - name: Package with AnyKernel3
         run: |
-          mkdir -p anykernel
-          wget -qO- https://codeload.github.com/osm0sis/AnyKernel3/tar.gz/refs/heads/master \
-            | tar -xzC anykernel --strip-components=1
+          git clone https://github.com AnyKernel3
+          cd AnyKernel3
+          
+          # Copy the compiled kernel image if it exists
+          if [ -f "../kernel-source/out/arch/arm64/boot/Image.gz-dtb" ]; then
+            cp ../kernel-source/out/arch/arm64/boot/Image.gz-dtb .
+          elif [ -f "../kernel-source/out/arch/arm64/boot/Image" ]; then
+            cp ../kernel-source/out/arch/arm64/boot/Image .
+          fi
 
-          KERNEL_IMAGE=$(find kernel-source/out -name "Image.gz-dtb" -o -name "Image.gz" -o -name "Image" | head -n 1)
-          cp "$KERNEL_IMAGE" anykernel/Image.gz
+          # Collect all compiled modules including our out-of-tree target
+          mkdir -p modules/system/lib/modules
+          find ../kernel-source/out/ -name "*.ko" -exec cp {} modules/system/lib/modules/ \;
+          
+          # Ensure any variant path files are flattened cleanly into target
+          find ../kernel-source/drivers/net/wireless/realtek/rtl8812au/ -name "*.ko" -exec cp {} modules/system/lib/modules/ \;
 
-          # Stage other existing modules if any exist in out directory
-          mkdir -p anykernel/modules/vendor/lib/modules/
-          find kernel-source/out -name "*.ko" -exec cp {} anykernel/modules/vendor/lib/modules/ \;
+          # Configuration for AnyKernel setup file
+          sed -i 's/do.devicecheck=1/do.devicecheck=0/g' anykernel.sh
+          
+          zip -r9 ../Kernel_SM-T290.zip * -x .git* README.md
 
-          cd anykernel
-          sed -i 's/do.modules=.*/do.modules=1/g' anykernel.sh
-          sed -i 's/do.systemless=.*/do.systemless=1/g' anykernel.sh
-          sed -i 's/device\.name1=.*/device.name1=gtowifi/g' anykernel.sh
-          sed -i 's|block=.*|block=/dev/block/bootdevice/by-name/boot|g' anykernel.sh
-
-          zip -r9 ../SM-T290-Lineage20-AnyKernel3-iam_devu.zip *
-
-      - name: Upload Flashable Zip Artifact
+      - name: Upload Finished Flashable Kernel Zip
         uses: actions/upload-artifact@v4
         with:
-          name: SM-T290-Lineage20-AnyKernel3-iam_devu
-          path: ./*.zip
+          name: Kernel_SM-T290-Flashable
+          path: Kernel_SM-T290.zip
           
