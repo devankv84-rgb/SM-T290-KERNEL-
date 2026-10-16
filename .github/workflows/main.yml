@@ -3,14 +3,14 @@ name: Build SM-T290 Kernel from Source (LineageOS 20)
 on:
   workflow_dispatch:
     inputs:
-      gdrive_file_id:
-        description: 'Google Drive File ID for Kernel Source Zip'
+      kernel_gdrive_id:
+        description: 'Google Drive File ID for Kernel Source'
         required: true
         default: '1rc_ZbJjmgLEy37pWvefuRTBX15n0DUqN'
-      kernel_branch:
-        description: 'Target Repository Branch (Reference)'
+      driver_gdrive_id:
+        description: 'Google Drive File ID for RTL Driver Source'
         required: true
-        default: 'lineage-20'
+        default: '1fPtjtxmJ6ZuG_16wzKlmZlYEYB3EedYh'
       defconfig_name:
         description: 'Target Defconfig File'
         required: true
@@ -46,34 +46,43 @@ jobs:
             clang lld
           pip install --no-cache-dir gdown
 
-      - name: Download and Extract Kernel Source from Google Drive
+      - name: Download and Extract Sources from Google Drive
         run: |
-          mkdir -p kernel-source
-          gdown '${{ github.event.inputs.gdrive_file_id }}' -O kernel-source.zip
-          unzip -q kernel-source.zip -d kernel-source
-          rm kernel-source.zip
+          # 1. Download and extract Kernel Source
+          mkdir -p kernel-source-temp kernel-source
+          gdown '${{ github.event.inputs.kernel_gdrive_id }}' -O kernel-source.zip
+          unzip -q kernel-source.zip -d kernel-source-temp
+          shopt -s dotglob
+          mv kernel-source-temp/*/* kernel-source/ 2>/dev/null || mv kernel-source-temp/* kernel-source/
+          rm -rf kernel-source-temp kernel-source.zip
 
-      - name: Fetch Realtek 88XXau Driver Source
+          # 2. Download and extract RTL Driver Source
+          mkdir -p rtl-temp rtl8812au
+          gdown '${{ github.event.inputs.driver_gdrive_id }}' -O rtl-driver.zip
+          unzip -q rtl-driver.zip -d rtl-temp
+          mv rtl-temp/*/* rtl8812au/ 2>/dev/null || mv rtl-temp/* rtl8812au/
+          rm -rf rtl-temp rtl-driver.zip
+
+      - name: Patch and Configure RTL Driver Makefile
         run: |
-          mkdir -p rtl8812au
-          wget -qO- https://codeload.github.com/aircrack-ng/rtl8812au/tar.gz/refs/heads/v5.6.4.2 \
-            | tar -xzC rtl8812au --strip-components=1
-
+          cd rtl8812au
           # Configure driver Makefile for Android ARM64 and disable i386
-          sed -i 's/CONFIG_PLATFORM_I386_PC = y/CONFIG_PLATFORM_I386_PC = n/g' rtl8812au/Makefile
-          sed -i 's/CONFIG_PLATFORM_ANDROID_ARM64 = n/CONFIG_PLATFORM_ANDROID_ARM64 = y/g' rtl8812au/Makefile || true
+          sed -i 's/CONFIG_PLATFORM_I386_PC = y/CONFIG_PLATFORM_I386_PC = n/g' Makefile || true
+          sed -i 's/CONFIG_PLATFORM_ANDROID_ARM64 = n/CONFIG_PLATFORM_ANDROID_ARM64 = y/g' Makefile || true
 
           # Force object modules target
-          sed -i -E 's/^([[:space:]]*)obj-\$\([A-Za-z0-9_]+\)[[:space:]]*[+:]?=/\1obj-m +=/' rtl8812au/Makefile
+          sed -i -E 's/^([[:space:]]*)obj-\$\([A-Za-z0-9_]+\)[[:space:]]*[+:]?=/\1obj-m +=/' Makefile || true
 
-          # Patch 1 (rtw_ap.c): ap_free_sta() cleanup block
-          perl -0pi -e 's/[ \t]*if \(\(psta->auth_len != 0\) && \(psta->pauth_frame != NULL\)\) \{.*?\n[ \t]*\}\n/\t\t\/* removed: auth_len\/pauth_frame not present in this build *\/\n/s' rtl8812au/core/rtw_ap.c
-
-          # Patch 2: Guard NL80211_AUTHTYPE_SAE against kernel header redefinition
-          perl -pi -e 's/#define NL80211_AUTHTYPE_SAE 4/#ifndef NL80211_AUTHTYPE_SAE\n#define NL80211_AUTHTYPE_SAE 4\n#endif/g' rtl8812au/include/rtw_mlme_ext.h
-
-          # Patch 3: Robust cfg80211_roamed signature patch for newer kernels
-          perl -0pi -e 's/cfg80211_roamed\s*\([\s\S]*?\);/struct cfg80211_roam_info roam_info = {0};\n\t\tcfg80211_roamed(padapter->pnetdev, &roam_info, GFP_ATOMIC);/g' rtl8812au/os_dep/linux/ioctl_cfg80211.c
+          # Apply compatibility patches if files exist
+          if [ -f "core/rtw_ap.c" ]; then
+            perl -0pi -e 's/[ \t]*if \(\(psta->auth_len != 0\) && \(psta->pauth_frame != NULL\)\) \{.*?\n[ \t]*\}\n/\t\t\/* removed: auth_len\/pauth_frame not present in this build *\/\n/s' core/rtw_ap.c
+          fi
+          if [ -f "include/rtw_mlme_ext.h" ]; then
+            perl -pi -e 's/#define NL80211_AUTHTYPE_SAE 4/#ifndef NL80211_AUTHTYPE_SAE\n#define NL80211_AUTHTYPE_SAE 4\n#endif/g' include/rtw_mlme_ext.h
+          fi
+          if [ -f "os_dep/linux/ioctl_cfg80211.c" ]; then
+            perl -0pi -e 's/cfg80211_roamed\s*\([\s\S]*?\);/struct cfg80211_roam_info roam_info = {0};\n\t\tcfg80211_roamed(padapter->pnetdev, &roam_info, GFP_ATOMIC);/g' os_dep/linux/ioctl_cfg80211.c
+          fi
 
       - name: Integrate RTL8812AU In-Tree
         run: |
@@ -103,6 +112,11 @@ jobs:
           sed -i 's/expr length/expr/g' Makefile 2>/dev/null || true
           mkdir -p out
           echo "-iam_devu" > localversion
+
+          if [ ! -f "arch/arm64/configs/${{ github.event.inputs.defconfig_name }}" ]; then
+            echo "ERROR: Defconfig file ${{ github.event.inputs.defconfig_name }} not found in arch/arm64/configs/"
+            exit 1
+          fi
 
           make O=out ARCH=arm64 ${{ github.event.inputs.defconfig_name }}
 
