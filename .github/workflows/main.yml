@@ -94,6 +94,13 @@ jobs:
                          hal/rtl8812a/rtl8812a_led.o
           EOF
 
+          cat << 'EOF' > Kconfig
+          config RTL8812AU
+              tristate "Realtek 8812AU USB WiFi support"
+              depends on USB
+              default y
+          EOF
+
           if [ -f "core/rtw_ap.c" ]; then
             perl -0pi -e 's/[ \t]*if \(\(psta->auth_len != 0\) && \(psta->pauth_frame != NULL\)\) \{.*?\n[ \t]*\}\n/\t\t\/* removed: auth_len\/pauth_frame not present in this build *\/\n/s' core/rtw_ap.c
           fi
@@ -107,17 +114,26 @@ jobs:
             perl -0pi -e 's/#include <net\/ip.h>/#include <net\/ip.h>\n#ifndef IPX_NODE_LEN\nstruct ipx_addr {\n\t__be32 net;\n\t__u8 node[IPX_NODE_LEN];\n\t__be16 sock;\n};\nstruct ipxhdr {\n\t__be16 ipx_checksum;\n\t__be16 ipx_pktsize;\n\t__u8 ipx_tcnt;\n\t__u8 ipx_type;\n\tstruct ipx_addr ipx_source;\n\tstruct ipx_addr ipx_dest;\n};\n#endif/s' core/rtw_br_ext.c
           fi
 
-      - name: Integrate RTL8812AU In-Tree
+      - name: Register RTL8812AU in Realtek Drivers Directory
         run: |
-          mkdir -p kernel-source/drivers/net/wireless/realtek/rtl8812au
-          cp -r rtl8812au/* kernel-source/drivers/net/wireless/realtek/rtl8812au/
+          cd kernel-source
+          mkdir -p drivers/net/wireless/realtek/rtl8812au
+          cp -r $GITHUB_WORKSPACE/rtl8812au/* drivers/net/wireless/realtek/rtl8812au/
 
-          if ! grep -q "rtl8812au" kernel-source/drivers/net/wireless/realtek/Kconfig 2>/dev/null; then
-            echo 'source "drivers/net/wireless/realtek/rtl8812au/Kconfig"' >> kernel-source/drivers/net/wireless/realtek/Kconfig
+          if [ -f "drivers/net/wireless/realtek/Kconfig" ]; then
+            if ! grep -q "rtl8812au" drivers/net/wireless/realtek/Kconfig; then
+              echo 'source "drivers/net/wireless/realtek/rtl8812au/Kconfig"' >> drivers/net/wireless/realtek/Kconfig
+            fi
+          else
+            echo 'source "drivers/net/wireless/realtek/rtl8812au/Kconfig"' > drivers/net/wireless/realtek/Kconfig
           fi
 
-          if ! grep -q "rtl8812au" kernel-source/drivers/net/wireless/realtek/Makefile 2>/dev/null; then
-            echo 'obj-$(CONFIG_RTL8812AU) += rtl8812au/' >> kernel-source/drivers/net/wireless/realtek/Makefile
+          if [ -f "drivers/net/wireless/realtek/Makefile" ]; then
+            if ! grep -q "rtl8812au" drivers/net/wireless/realtek/Makefile; then
+              echo 'obj-$(CONFIG_RTL8812AU) += rtl8812au/' >> drivers/net/wireless/realtek/Makefile
+            fi
+          else
+            echo 'obj-$(CONFIG_RTL8812AU) += rtl8812au/' > drivers/net/wireless/realtek/Makefile
           fi
 
       - name: Compile Kernel Built-In
