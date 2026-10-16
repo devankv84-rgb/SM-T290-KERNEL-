@@ -63,12 +63,36 @@ jobs:
           mv rtl-temp/*/* rtl8812au/ 2>/dev/null || mv rtl-temp/* rtl8812au/
           rm -rf rtl-temp rtl-driver.zip
 
-      - name: Patch and Configure RTL Driver Makefile
+      - name: Configure RTL Driver for Built-In In-Tree Build
         run: |
           cd rtl8812au
-          sed -i 's/CONFIG_PLATFORM_I386_PC = y/CONFIG_PLATFORM_I386_PC = n/g' Makefile || true
-          sed -i 's/CONFIG_PLATFORM_ANDROID_ARM64 = n/CONFIG_PLATFORM_ANDROID_ARM64 = y/g' Makefile || true
-          sed -i -E 's/^([[:space:]]*)obj-\$\([A-Za-z0-9_]+\)[[:space:]]*[+:]?=/\1obj-m +=/' Makefile || true
+          rm -f Makefile
+          cat << 'EOF' > Makefile
+          obj-$(CONFIG_RTL8812AU) += rtl8812au.o
+          rtl8812au-y := core/rtw_cmd.o core/rtw_security.o core/rtw_debug.o \
+                         core/rtw_io.o core/rtw_ioctl.o core/rtw_ioctl_set.o \
+                         core/rtw_pwrctrl.o core/rtw_ps.o core/rtw_mlme.o \
+                         core/rtw_sta_mgt.o core/rtw_ap.o core/rtw_br_ext.o \
+                         core/rtw_mp.o core/rtw_mp_ioctl.o core/rtw_events.o \
+                         core/rtw_iol.o core/rtw_eeprom.o core/rtw_mlme_ext.o \
+                         core/rtw_rme.o core/rtw_qos.o core/rtw_wlan_util.o \
+                         core/rtw_ifi.o core/rtw_mesh.o core/rtw_odm.o \
+                         os_dep/linux/os_intfs.o os_dep/linux/drv_types.o \
+                         os_dep/linux/ioctl_linux.o os_dep/linux/xmit_linux.o \
+                         os_dep/linux/recv_linux.o os_dep/linux/osdep_service.o \
+                         os_dep/linux/rtw_android.o os_dep/linux/ioctl_cfg80211.o \
+                         os_dep/linux/rtw_cfgvendor.o os_dep/linux/usb_ops_linux.o \
+                         hal/hal_intf.o hal/hal_com.o hal/hal_com_phy_reg.o \
+                         hal/phydm/phydm_API.o hal/phydm/phydm_antdiv.o \
+                         hal/phydm/phydm_beamforming.o hal/phydm/phydm_interface.o \
+                         hal/phydm/phydm_interface_usb.o hal/phydm/phydm_regconfig.o \
+                         hal/phydm/phydm_structure.o hal/phydm/rtl8812a/hal8812a_fw.o \
+                         hal/phydm/rtl8812a/hal8812a_rx_desc.o hal/phydm/rtl8812a/hal8812a_tx_desc.o \
+                         hal/rtl8812a/rtl8812a_hal_init.o hal/rtl8812a/rtl8812a_io.o \
+                         hal/rtl8812a/rtl8812a_sreset.o hal/rtl8812a/rtl8812a_xmit.o \
+                         hal/rtl8812a/rtl8812a_recv.o hal/rtl8812a/rtl8812a_cmd.o \
+                         hal/rtl8812a/rtl8812a_led.o
+          EOF
 
           if [ -f "core/rtw_ap.c" ]; then
             perl -0pi -e 's/[ \t]*if \(\(psta->auth_len != 0\) && \(psta->pauth_frame != NULL\)\) \{.*?\n[ \t]*\}\n/\t\t\/* removed: auth_len\/pauth_frame not present in this build *\/\n/s' core/rtw_ap.c
@@ -83,7 +107,20 @@ jobs:
             perl -0pi -e 's/#include <net\/ip.h>/#include <net\/ip.h>\n#ifndef IPX_NODE_LEN\nstruct ipx_addr {\n\t__be32 net;\n\t__u8 node[IPX_NODE_LEN];\n\t__be16 sock;\n};\nstruct ipxhdr {\n\t__be16 ipx_checksum;\n\t__be16 ipx_pktsize;\n\t__u8 ipx_tcnt;\n\t__u8 ipx_type;\n\tstruct ipx_addr ipx_source;\n\tstruct ipx_addr ipx_dest;\n};\n#endif/s' core/rtw_br_ext.c
           fi
 
-      - name: Compile Kernel and In-tree Modules
+      - name: Integrate RTL8812AU In-Tree
+        run: |
+          mkdir -p kernel-source/drivers/net/wireless/realtek/rtl8812au
+          cp -r rtl8812au/* kernel-source/drivers/net/wireless/realtek/rtl8812au/
+
+          if ! grep -q "rtl8812au" kernel-source/drivers/net/wireless/realtek/Kconfig 2>/dev/null; then
+            echo 'source "drivers/net/wireless/realtek/rtl8812au/Kconfig"' >> kernel-source/drivers/net/wireless/realtek/Kconfig
+          fi
+
+          if ! grep -q "rtl8812au" kernel-source/drivers/net/wireless/realtek/Makefile 2>/dev/null; then
+            echo 'obj-$(CONFIG_RTL8812AU) += rtl8812au/' >> kernel-source/drivers/net/wireless/realtek/Makefile
+          fi
+
+      - name: Compile Kernel Built-In
         run: |
           cd kernel-source
           export ARCH=arm64
@@ -106,50 +143,17 @@ jobs:
 
           make O=out ARCH=arm64 ${{ github.event.inputs.defconfig_name }}
 
-          if ! grep -qE "^CONFIG_CFG80211=(y|m)" out/.config; then
+          if ! grep -qE "^CONFIG_CFG80211=y" out/.config; then
             sed -i '/CONFIG_CFG80211/d' out/.config
-            echo "CONFIG_CFG80211=m" >> out/.config
+            echo "CONFIG_CFG80211=y" >> out/.config
           fi
-          sed -i '/CONFIG_MODULES[= ]/d' out/.config
-          echo "CONFIG_MODULES=y" >> out/.config
-          echo "CONFIG_MODULE_UNLOAD=y" >> out/.config
-          echo "CONFIG_COMPAT=y" >> out/.config
+          if ! grep -qE "^CONFIG_RTL8812AU=y" out/.config; then
+            sed -i '/CONFIG_RTL8812AU/d' out/.config
+            echo "CONFIG_RTL8812AU=y" >> out/.config
+          fi
 
           make O=out ARCH=arm64 olddefconfig
           make -j$(nproc) O=out ARCH=arm64
-          make -j$(nproc) O=out ARCH=arm64 modules
-
-      - name: Build 88XXau.ko as External Module
-        run: |
-          export ARCH=arm64
-          export SUBARCH=arm64
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
-          export KCFLAGS="-w -Wno-error -gdwarf-4 -gno-record-gcc-switches"
-
-          KSRC="$GITHUB_WORKSPACE/kernel-source"
-          KOUT="$KSRC/out"
-          DRV="$GITHUB_WORKSPACE/rtl8812au"
-
-          make -C "$KSRC" O="$KOUT" M="$DRV" \
-            ARCH=arm64 CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 \
-            CONFIG_PLATFORM_I386_PC=n \
-            CONFIG_RTL8812AU_8821AU=m \
-            CONFIG_RTL8812AU=m \
-            modules 2>&1 | tee modules-88xxau.log
-
-          if ! find "$DRV" -name "88XXau.ko" | grep -q .; then
-            echo "ERROR: 88XXau.ko was not produced. See modules-88xxau.log"
-            exit 1
-          fi
-
-      - name: Upload Driver Build Log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: 88xxau-build-log
-          path: modules-88xxau.log
-          if-no-files-found: ignore
 
       - name: Package with AnyKernel3
         run: |
@@ -160,15 +164,8 @@ jobs:
           KERNEL_IMAGE=$(find kernel-source/out -name "Image.gz-dtb" -o -name "Image.gz" -o -name "Image" | head -n 1)
           cp "$KERNEL_IMAGE" anykernel/Image.gz
 
-          mkdir -p anykernel/modules/system/lib/modules/
-          find kernel-source/out -name "*.ko" -exec cp {} anykernel/modules/system/lib/modules/ \;
-          cp rtl8812au/88XXau.ko anykernel/modules/system/lib/modules/
-
-          echo "Staged modules:"
-          ls -la anykernel/modules/system/lib/modules/
-
           cd anykernel
-          sed -i 's/do.modules=.*/do.modules=1/g' anykernel.sh
+          sed -i 's/do.modules=.*/do.modules=0/g' anykernel.sh
           sed -i 's/do.systemless=.*/do.systemless=1/g' anykernel.sh
           sed -i 's/device\.name1=.*/device.name1=gtowifi/g' anykernel.sh
           sed -i 's|block=.*|block=/dev/block/bootdevice/by-name/boot|g' anykernel.sh
