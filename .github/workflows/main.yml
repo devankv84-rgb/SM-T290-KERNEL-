@@ -16,8 +16,6 @@ jobs:
     steps:
       - name: Checkout Target Kernel Branch
         uses: actions/checkout@v4
-        # We removed the 'ref:' line completely. GitHub will automatically check out 
-        # whichever branch you choose in the "Use workflow from" dropdown menu.
 
       - name: Force Fix Branch State
         run: |
@@ -30,14 +28,13 @@ jobs:
           sudo apt-get install -y bc build-essential libncurses5-dev libssl-dev \
             bison flex libelf-dev texinfo unzip ccache acpica-tools
 
-      - name: Download AOSP GCC Toolchain
+      - name: Download Toolchains (LineageOS Mirrors)
         run: |
           mkdir -p toolchains
           cd toolchains
-          # Clones the reference Google AOSP 64-bit toolchain required for 4.9 kernels
-          git clone --depth=1 https://googlesource.com gcc64
-          # Clones the 32-bit companion toolchain used for lower-level kernel components
-          git clone --depth=1 https://googlesource.com gcc32
+          # Redirected to the official LineageOS GitHub mirrors to bypass Google's 404 removal error
+          git clone --depth=1 https://github.com gcc64
+          git clone --depth=1 https://github.com gcc32
           echo "GCC64_PATH=${{ github.workspace }}/toolchains/gcc64/bin" >> $GITHUB_ENV
           echo "GCC32_PATH=${{ github.workspace }}/toolchains/gcc32/bin" >> $GITHUB_ENV
 
