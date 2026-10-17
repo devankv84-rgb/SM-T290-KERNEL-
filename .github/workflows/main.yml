@@ -25,11 +25,17 @@ jobs:
           sudo apt-get install -y bc build-essential libncurses5-dev libssl-dev \
             bison flex libelf-dev texinfo unzip ccache acpica-tools
 
-      - name: Download Combined GCC 4.9 Toolchain
+      - name: Download Toolchains (64-bit GCC 4.9 & Official Google 32-bit NDK r14)
         run: |
-          # Clones the custom combined repository providing structural compiler utilities
-          git clone --depth=1 "https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9" ${{ github.workspace }}/toolchain
-          echo "GCC_PATH=${{ github.workspace }}/toolchain/bin" >> $GITHUB_ENV
+          # 1. Clone 64-bit toolchain
+          git clone --depth=1 "https://github.com/xiangfeidexiaohuo/GCC-4.9" ${{ github.workspace }}/toolchain-64
+          
+          # 2. Clone official Google 32-bit ARM toolchain (NDK r14 release branch)
+          git clone --depth=1 -b ndk-r14-release "https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9" ${{ github.workspace }}/toolchain-32
+          
+          # 3. Expose both bin directories globally to GITHUB_PATH
+          echo "${{ github.workspace }}/toolchain-64/bin" >> $GITHUB_PATH
+          echo "${{ github.workspace }}/toolchain-32/bin" >> $GITHUB_PATH
 
       - name: Clone Your RTL8812AU Repository Branch
         run: |
@@ -38,18 +44,17 @@ jobs:
 
       - name: Inject Out-of-Tree & Wireless Configurations
         run: |
-          CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
-          if [ ! -f "$CONFIG_FILE" ]; then
-            if [ -f "arch/arm64/configs/vendor/${{ env.DEFCONFIG_NAME }}" ]; then
-              CONFIG_FILE="arch/arm64/configs/vendor/${{ env.DEFCONFIG_NAME }}"
-            else
-              echo "WARNING: Config file ${{ env.DEFCONFIG_NAME }} not found. Listing available configs for debugging:"
-              ls -l arch/arm64/configs/
-              exit 1
-            fi
+          CONFIG_FILE=$(find arch/arm64/configs -name "${{ env.DEFCONFIG_NAME }}" | head -n 1)
+
+          if [ -z "$CONFIG_FILE" ] || [ ! -f "$CONFIG_FILE" ]; then
+            echo "ERROR: Config file ${{ env.DEFCONFIG_NAME }} not found!"
+            find arch/arm64/configs -name "*defconfig"
+            exit 1
           fi
-          
+
+          echo "Found config file at: $CONFIG_FILE"
           echo "Injecting modular and wireless definitions into $CONFIG_FILE..."
+          
           # Fix the module blocker variables found in the root Makefile
           sed -i 's/KBUILD_MODULES :=/KBUILD_MODULES := 1/g' Makefile
 
@@ -73,7 +78,10 @@ jobs:
 
       - name: Configure and Generate .config
         run: |
-          export PATH="${{ env.GCC_PATH }}:$PATH"
+          # Verify both compiler binaries are visible
+          which aarch64-linux-android-gcc
+          which arm-linux-androideabi-gcc
+
           export CROSS_COMPILE=aarch64-linux-android-
           export CROSS_COMPILE_ARM32=arm-linux-androideabi-
           make ${{ env.DEFCONFIG_NAME }}
@@ -81,14 +89,12 @@ jobs:
 
       - name: Compile Monolithic Kernel & Internal Modules
         run: |
-          export PATH="${{ env.GCC_PATH }}:$PATH"
           export CROSS_COMPILE=aarch64-linux-android-
           export CROSS_COMPILE_ARM32=arm-linux-androideabi-
           make -j$(nproc) LOCALVERSION=${{ env.CUSTOM_NAME }} modules_prepare dtbs all modules
 
       - name: Compile External RTL8812AU Module
         run: |
-          export PATH="${{ env.GCC_PATH }}:$PATH"
           export CROSS_COMPILE=aarch64-linux-android-
           cd rtl8812au
           # Compile the driver mapping build markers directly to your active kernel tree workspace
@@ -107,3 +113,4 @@ jobs:
             drivers/staging/qcacld-2.0/*.ko
             rtl8812au/*.ko
           if-no-files-found: warn
+          
