@@ -53,12 +53,12 @@ jobs:
           fi
 
           echo "Found config file at: $CONFIG_FILE"
-          echo "Injecting modular, wireless, camera-disable, and IPA-disable definitions into $CONFIG_FILE..."
+          echo "Injecting modular, wireless, and IPA-disable definitions into $CONFIG_FILE..."
           
           # Fix the module blocker variables found in the root Makefile
           sed -i 's/KBUILD_MODULES :=/KBUILD_MODULES := 1/g' Makefile
 
-          # Force set required configurations for external modules, wireless, and skipping camera/IPA
+          # Force set required configurations for external modules, wireless, and disabling IPA/Camera
           cat <<EOF >> "$CONFIG_FILE"
           CONFIG_MODULES=y
           CONFIG_MODULE_UNLOAD=y
@@ -77,8 +77,10 @@ jobs:
           # Disable Camera subsystem to skip build errors
           # CONFIG_MSMB_CAMERA is not set
           # CONFIG_MSMB_CAMERA_SENSOR is not set
-          # Disable IPA subsystem to skip trace errors
+          # Disable IPA subsystem entirely to skip trace errors
           # CONFIG_QCOM_IPA is not set
+          # CONFIG_IPA_V2 is not set
+          # CONFIG_IPA3 is not set
           # CONFIG_RNDIS_IPA is not set
           EOF
 
