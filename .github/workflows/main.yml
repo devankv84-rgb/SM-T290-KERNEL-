@@ -53,12 +53,12 @@ jobs:
           fi
 
           echo "Found config file at: $CONFIG_FILE"
-          echo "Injecting modular and wireless definitions into $CONFIG_FILE..."
+          echo "Injecting modular, wireless, and camera-disable definitions into $CONFIG_FILE..."
           
           # Fix the module blocker variables found in the root Makefile
           sed -i 's/KBUILD_MODULES :=/KBUILD_MODULES := 1/g' Makefile
 
-          # Force set required configurations for external modules AND internal pronto wlan
+          # Force set required configurations for external modules, wireless, and skipping camera
           cat <<EOF >> "$CONFIG_FILE"
           CONFIG_MODULES=y
           CONFIG_MODULE_UNLOAD=y
@@ -74,6 +74,9 @@ jobs:
           CONFIG_USB=y
           CONFIG_USB_SUPPORT=y
           CONFIG_PRONTO_WLAN=m
+          # Disable Camera subsystem to skip build errors
+          # CONFIG_MSMB_CAMERA is not set
+          # CONFIG_MSMB_CAMERA_SENSOR is not set
           EOF
 
       - name: Configure and Generate .config
@@ -111,21 +114,6 @@ jobs:
             echo "ccflags-y += -I\$(srctree)/drivers/gpu/msm" >> "$KGSL_MAKEFILE"
           else
             echo "WARNING: drivers/gpu/msm/Makefile not found!"
-          fi
-
-      - name: Fix Camera Header Include Paths
-        run: |
-          CAM_MAKEFILE="drivers/media/platform/msm/camera_v2/Makefile"
-          if [ -f "$CAM_MAKEFILE" ]; then
-            echo "Injecting comprehensive camera include paths into $CAM_MAKEFILE..."
-            cat <<EOF >> "$CAM_MAKEFILE"
-          ccflags-y += -I\$(srctree)/drivers/media/platform/msm/camera_v2/isp
-          ccflags-y += -I\$(srctree)/drivers/media/platform/msm/camera_v2/common
-          ccflags-y += -I\$(srctree)/drivers/media/platform/msm/camera_v2/sensor
-          ccflags-y += -I\$(srctree)/drivers/media/platform/msm/camera_v2/include
-          EOF
-          else
-            echo "WARNING: drivers/media/platform/msm/camera_v2/Makefile not found!"
           fi
 
       - name: Compile Monolithic Kernel & Internal Modules
