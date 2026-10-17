@@ -113,6 +113,16 @@ jobs:
             echo "WARNING: drivers/gpu/msm/Makefile not found!"
           fi
 
+      - name: Fix Camera Header Include Paths
+        run: |
+          CAM_MAKEFILE="drivers/media/platform/msm/camera_v2/Makefile"
+          if [ -f "$CAM_MAKEFILE" ]; then
+            echo "Injecting common camera include path into $CAM_MAKEFILE..."
+            echo "ccflags-y += -I\$(srctree)/drivers/media/platform/msm/camera_v2/common" >> "$CAM_MAKEFILE"
+          else
+            echo "WARNING: drivers/media/platform/msm/camera_v2/Makefile not found!"
+          fi
+
       - name: Compile Monolithic Kernel & Internal Modules
         run: |
           export CROSS_COMPILE=aarch64-linux-android-
