@@ -6,7 +6,6 @@ on:
 env:
   ARCH: arm64
   DEFCONFIG_NAME: lineageos_gtowifi_defconfig 
-  BRANCH_NAME: lineage-20
   # Custom signature string
   CUSTOM_NAME: "-iam_devu" 
 
@@ -18,7 +17,8 @@ jobs:
       - name: Checkout Target Kernel Branch
         uses: actions/checkout@v4
         with:
-          ref: ${{ env.BRANCH_NAME }}
+          # Hardcoding the exact target literal prevents Git from applying a wild-card lookup error
+          ref: lineage-20
 
       - name: Install Build Dependencies
         run: |
