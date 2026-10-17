@@ -97,14 +97,20 @@ jobs:
             echo "WARNING: drivers/bluetooth/Makefile not found!"
           fi
 
-      - name: Fix KGSL Trace Include Path Reference
+      - name: Fix KGSL Trace Include Paths
         run: |
           TRACE_FILE="drivers/gpu/msm/kgsl_trace.h"
           if [ -f "$TRACE_FILE" ]; then
-            echo "Patching TRACE_INCLUDE_PATH in $TRACE_FILE..."
-            sed -i 's|#define TRACE_INCLUDE_PATH \.|#define TRACE_INCLUDE_PATH drivers/gpu/msm|g' "$TRACE_FILE"
+            echo "Ensuring TRACE_INCLUDE_PATH is set to dot in $TRACE_FILE..."
+            sed -i 's|#define TRACE_INCLUDE_PATH drivers/gpu/msm|#define TRACE_INCLUDE_PATH \.|g' "$TRACE_FILE"
+          fi
+
+          KGSL_MAKEFILE="drivers/gpu/msm/Makefile"
+          if [ -f "$KGSL_MAKEFILE" ]; then
+            echo "Injecting ccflags include path into $KGSL_MAKEFILE..."
+            echo "ccflags-y += -I\$(srctree)/drivers/gpu/msm" >> "$KGSL_MAKEFILE"
           else
-            echo "WARNING: drivers/gpu/msm/kgsl_trace.h not found!"
+            echo "WARNING: drivers/gpu/msm/Makefile not found!"
           fi
 
       - name: Compile Monolithic Kernel & Internal Modules
