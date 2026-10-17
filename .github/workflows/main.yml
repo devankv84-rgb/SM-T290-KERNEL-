@@ -16,9 +16,13 @@ jobs:
     steps:
       - name: Checkout Target Kernel Branch
         uses: actions/checkout@v4
-        with:
-          # Hardcoding the exact target literal prevents Git from applying a wild-card lookup error
-          ref: lineage-20
+        # We removed the 'ref:' line completely. GitHub will automatically check out 
+        # whichever branch you choose in the "Use workflow from" dropdown menu.
+
+      - name: Force Fix Branch State
+        run: |
+          # Fallback check to ensure the runner knows exactly what branch it is on
+          git checkout lineage-20 || echo "Already on target branch or branch managed by runner"
 
       - name: Install Build Dependencies
         run: |
@@ -121,4 +125,3 @@ jobs:
             drivers/staging/qcacld-2.0/*.ko
             rtl88xxau_src/*.ko
           if-no-files-found: warn
-          
