@@ -87,6 +87,16 @@ jobs:
           make ${{ env.DEFCONFIG_NAME }}
           make olddefconfig
 
+      - name: Fix Bluetooth Header Include Paths
+        run: |
+          BT_MAKEFILE="drivers/bluetooth/Makefile"
+          if [ -f "$BT_MAKEFILE" ]; then
+            echo "Injecting ccflags include path into $BT_MAKEFILE..."
+            echo "ccflags-y += -I\$(srctree)/drivers/bluetooth" >> "$BT_MAKEFILE"
+          else
+            echo "WARNING: drivers/bluetooth/Makefile not found!"
+          fi
+
       - name: Compile Monolithic Kernel & Internal Modules
         run: |
           export CROSS_COMPILE=aarch64-linux-android-
@@ -113,4 +123,3 @@ jobs:
             drivers/staging/qcacld-2.0/*.ko
             rtl8812au/*.ko
           if-no-files-found: warn
-          
