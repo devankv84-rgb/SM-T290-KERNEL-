@@ -115,12 +115,17 @@ jobs:
 
       - name: Fix Camera Header Include Paths
         run: |
-          CAM_COMMON_MAKEFILE="drivers/media/platform/msm/camera_v2/common/Makefile"
-          if [ -f "$CAM_COMMON_MAKEFILE" ]; then
-            echo "Injecting ccflags include path into $CAM_COMMON_MAKEFILE..."
-            echo "ccflags-y += -I\$(srctree)/drivers/media/platform/msm/camera_v2/common" >> "$CAM_COMMON_MAKEFILE"
+          CAM_MAKEFILE="drivers/media/platform/msm/camera_v2/Makefile"
+          if [ -f "$CAM_MAKEFILE" ]; then
+            echo "Injecting comprehensive camera include paths into $CAM_MAKEFILE..."
+            cat <<EOF >> "$CAM_MAKEFILE"
+          ccflags-y += -I\$(srctree)/drivers/media/platform/msm/camera_v2/isp
+          ccflags-y += -I\$(srctree)/drivers/media/platform/msm/camera_v2/common
+          ccflags-y += -I\$(srctree)/drivers/media/platform/msm/camera_v2/sensor
+          ccflags-y += -I\$(srctree)/drivers/media/platform/msm/camera_v2/include
+          EOF
           else
-            echo "WARNING: drivers/media/platform/msm/camera_v2/common/Makefile not found!"
+            echo "WARNING: drivers/media/platform/msm/camera_v2/Makefile not found!"
           fi
 
       - name: Compile Monolithic Kernel & Internal Modules
