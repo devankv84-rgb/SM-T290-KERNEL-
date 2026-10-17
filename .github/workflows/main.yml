@@ -31,7 +31,7 @@ jobs:
       - name: Download Combined GCC 4.9 Toolchain
         run: |
           # Clones the custom combined repository providing structural compiler utilities
-          git clone --depth=1 "https://github.com" toolchain
+          git clone --depth=1 "https://github.com/xiangfeidexiaohuo/GCC-4.9"
           echo "GCC_PATH=${{ github.workspace }}/toolchain/bin" >> $GITHUB_ENV
 
       - name: Clone Your RTL8812AU Repository Branch
