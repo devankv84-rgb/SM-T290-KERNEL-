@@ -28,15 +28,13 @@ jobs:
           sudo apt-get install -y bc build-essential libncurses5-dev libssl-dev \
             bison flex libelf-dev texinfo unzip ccache acpica-tools
 
-      - name: Download Toolchains (LineageOS Mirrors)
+      - name: Download Combined GCC 4.9 Toolchain
         run: |
-          mkdir -p toolchains
-          cd toolchains
-          # Redirected to the official LineageOS GitHub mirrors to bypass Google's 404 removal error
-          git clone --depth=1 https://github.com gcc64
-          git clone --depth=1 https://github.com gcc32
-          echo "GCC64_PATH=${{ github.workspace }}/toolchains/gcc64/bin" >> $GITHUB_ENV
-          echo "GCC32_PATH=${{ github.workspace }}/toolchains/gcc32/bin" >> $GITHUB_ENV
+          # Clones the custom combined repository you provided
+          git clone --depth=1 https://github.com/xiangfeidexiaohuo/GCC-4.9 toolchain
+          
+          # Map paths directly to the unified binary directory inside the cloned repo
+          echo "GCC_PATH=${{ github.workspace }}/toolchain/bin" >> $GITHUB_ENV
 
       - name: Clone RTL88xxau Driver Source
         run: |
@@ -82,7 +80,7 @@ jobs:
 
       - name: Configure and Generate .config
         run: |
-          export PATH="${{ env.GCC64_PATH }}:${{ env.GCC32_PATH }}:$PATH"
+          export PATH="${{ env.GCC_PATH }}:$PATH"
           export CROSS_COMPILE=aarch64-linux-android-
           export CROSS_COMPILE_ARM32=arm-linux-androideabi-
           
@@ -92,7 +90,7 @@ jobs:
 
       - name: Compile Monolithic Kernel & Internal Modules
         run: |
-          export PATH="${{ env.GCC64_PATH }}:${{ env.GCC32_PATH }}:$PATH"
+          export PATH="${{ env.GCC_PATH }}:$PATH"
           export CROSS_COMPILE=aarch64-linux-android-
           export CROSS_COMPILE_ARM32=arm-linux-androideabi-
           
@@ -102,7 +100,7 @@ jobs:
 
       - name: Compile External RTL88xxau Module
         run: |
-          export PATH="${{ env.GCC64_PATH }}:${{ env.GCC32_PATH }}:$PATH"
+          export PATH="${{ env.GCC_PATH }}:$PATH"
           export CROSS_COMPILE=aarch64-linux-android-
           
           cd rtl88xxau_src
