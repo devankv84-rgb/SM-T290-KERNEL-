@@ -1,192 +1,124 @@
-name: Build SM-T290 Kernel from Source (LineageOS 20)
+name: Build Android Kernel with RTL88xxau Support
 
 on:
-  workflow_dispatch:
-    inputs:
-      kernel_gdrive_id:
-        description: 'Google Drive File ID for Kernel Source'
-        required: true
-        default: '1rc_ZbJjmgLEy37pWvefuRTBX15n0DUqN'
-      defconfig_name:
-        description: 'Target Defconfig File'
-        required: true
-        default: 'lineageos_gtowifi_defconfig'
+  workflow_dispatch: # Allows you to trigger the build manually from the GitHub Actions tab
+
+env:
+  ARCH: arm64
+  DEFCONFIG_NAME: lineageos_gtowifi_defconfig 
+  BRANCH_NAME: lineage-20
+  # Custom signature string
+  CUSTOM_NAME: "-iam_devu" 
 
 jobs:
   build-kernel:
     runs-on: ubuntu-22.04
+
     steps:
-      - name: Checkout Workflow Repo
+      - name: Checkout Target Kernel Branch
         uses: actions/checkout@v4
-
-      - name: Set Environment Variables
-        run: |
-          echo "TZ=UTC" >> $GITHUB_ENV
-          echo "CCACHE_DIR=${{ github.workspace }}/ccache" >> $GITHUB_ENV
-
-      - name: Cache Ccache
-        uses: actions/cache@v4
         with:
-          path: ccache
-          key: ${{ runner.os }}-kernel-ccache-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-kernel-ccache-
+          ref: ${{ env.BRANCH_NAME }}
 
-      - name: Install Host Dependencies & System Clang Compiler
+      - name: Install Build Dependencies
         run: |
-          sudo apt-get update && sudo apt-get install -y \
-            build-essential bc bison flex libssl-dev libncurses5-dev libelf-dev \
-            git wget zip unzip lzop perl rsync kmod device-tree-compiler ccache \
-            python3 python3-pip binutils-aarch64-linux-gnu binutils-arm-linux-gnueabi \
-            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
-            clang lld
-          pip install --no-cache-dir gdown
+          sudo apt-get update
+          sudo apt-get install -y bc build-essential libncurses5-dev libssl-dev \
+            bison flex libelf-dev texinfo unzip ccache acpica-tools
 
-      - name: Download Kernel Source and Clone RTL8812AU Repository
+      - name: Download AOSP GCC Toolchain
         run: |
-          # 1. Download and extract Kernel Source from Google Drive
-          mkdir -p kernel-source-temp kernel-source
-          gdown '${{ github.event.inputs.kernel_gdrive_id }}' -O kernel-source.zip
-          unzip -q kernel-source.zip -d kernel-source-temp
-          shopt -s dotglob
-          mv kernel-source-temp/*/* kernel-source/ 2>/dev/null || mv kernel-source-temp/* kernel-source/
-          rm -rf kernel-source-temp kernel-source.zip
+          mkdir -p toolchains
+          cd toolchains
+          # Clones the reference Google AOSP 64-bit toolchain required for 4.9 kernels
+          git clone --depth=1 https://googlesource.com gcc64
+          # Clones the 32-bit companion toolchain used for lower-level kernel components
+          git clone --depth=1 https://googlesource.com gcc32
+          echo "GCC64_PATH=${{ github.workspace }}/toolchains/gcc64/bin" >> $GITHUB_ENV
+          echo "GCC32_PATH=${{ github.workspace }}/toolchains/gcc32/bin" >> $GITHUB_ENV
 
-          # 2. Clone the custom rtl8812au repository version (v5.2.20)
-          mkdir -p rtl8812au
-          git clone --branch v5.2.20 --depth 1 https://github.com/devankv84-rgb/rtl8812au.git rtl-temp
-          mv rtl-temp/* rtl8812au/ 2>/dev/null || true
-          rm -rf rtl-temp
-
-      - name: Configure RTL Driver Makefile and Patches
+      - name: Clone RTL88xxau Driver Source
         run: |
-          cd rtl8812au
-          sed -i 's/CONFIG_PLATFORM_I386_PC = y/CONFIG_PLATFORM_I386_PC = n/g' Makefile || true
-          sed -i 's/CONFIG_PLATFORM_ANDROID_ARM64 = n/CONFIG_PLATFORM_ANDROID_ARM64 = y/g' Makefile || true
+          # Clones the Linux/Android compatible realtek source tree
+          git clone --depth=1 https://github.com rtl88xxau_src
+
+      - name: Inject Out-of-Tree & Wireless Configurations
+        run: |
+          CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
           
-          # Force the driver Makefile to configure object targets for in-tree built-in compilation (obj-y)
-          sed -i -E 's/^([[:space:]]*)obj-\$\([A-Za-z0-9_]+\)[[:space:]]*[+:]?=/\1obj-y +=/' Makefile || true
+          if [ ! -f "$CONFIG_FILE" ]; then
+            # Check if ROM tree nests the defconfig inside vendor/
+            if [ -f "arch/arm64/configs/vendor/${{ env.DEFCONFIG_NAME }}" ]; then
+              CONFIG_FILE="arch/arm64/configs/vendor/${{ env.DEFCONFIG_NAME }}"
+            else
+              echo "ERROR: Config file ${{ env.DEFCONFIG_NAME }} not found in standard paths!"
+              exit 1
+            fi
+          fi
+
+          echo "Injecting modular and wireless definitions into $CONFIG_FILE..."
           
-          # Fix relative include paths for O=out builds
-          sed -i 's|^include[[:space:]]\+\([^/$]\+\)|include $(src)/\1|g' Makefile
-          sed -i 's|include[[:space:]]\+hal/|include $(src)/hal/|g' Makefile
-
-          # Apply -mcmodel=large and --pic-veneer exclusively to the driver Makefile
-          echo "EXTRA_CFLAGS += -fno-stack-protector -Wno-implicit-function-declaration -mcmodel=large" >> Makefile
-          echo "EXTRA_LDFLAGS += --pic-veneer" >> Makefile
-
-          # Append stub definitions for unexported symbols
-          cat << 'EOF' >> os_dep/linux/os_intfs.c
-
-          /* Stub definitions for unexported symbols */
-          void rtw_hal_pno_random_gen_mac_addr(void *adapter) { }
-          void rtw_hal_set_hw_mac_addr(void *adapter, void *addr) { }
-          void rtw_cfgvendor_rssi_monitor_evt(void *adapter, int len, void *data) { }
+          # Fix the module blocker variables found in the root Makefile
+          sed -i 's/KBUILD_MODULES :=/KBUILD_MODULES := 1/g' Makefile
+          
+          # Force set required configurations for external modules AND internal pronto wlan
+          cat <<EOF >> "$CONFIG_FILE"
+          CONFIG_MODULES=y
+          CONFIG_MODULE_UNLOAD=y
+          CONFIG_MODVERSIONS=y
+          # CONFIG_MODULE_SIG is not set
+          # CONFIG_MODULE_SIG_FORCE is not set
+          CONFIG_NETDEVICES=y
+          CONFIG_WLAN=y
+          CONFIG_CFG80211=y
+          CONFIG_MAC80211=y
+          CONFIG_CFG80211_WEXT=y
+          CONFIG_MAC80211_RC_DEFAULT_MINSTREL=y
+          CONFIG_USB=y
+          CONFIG_USB_SUPPORT=y
+          CONFIG_PRONTO_WLAN=m
           EOF
 
-          if [ -f "core/rtw_ap.c" ]; then
-            perl -0pi -e 's/[ \t]*if \(\(psta->auth_len != 0\) && \(psta->pauth_frame != NULL\)\) \{.*?\n[ \t]*\}\n/\t\t\/* removed: auth_len\/pauth_frame not present in this build *\/\n/s' core/rtw_ap.c
-          fi
-          if [ -f "include/rtw_mlme_ext.h" ]; then
-            perl -pi -e 's/#define NL80211_AUTHTYPE_SAE 4/#ifndef NL80211_AUTHTYPE_SAE\n#define NL80211_AUTHTYPE_SAE 4\n#endif/g' include/rtw_mlme_ext.h
-          fi
-          if [ -f "os_dep/linux/ioctl_cfg80211.c" ]; then
-            perl -0pi -e 's/cfg80211_roamed\s*\([\s\S]*?\);/struct cfg80211_roam_info roam_info = {0};\n\t\tcfg80211_roamed(padapter->pnetdev, &roam_info, GFP_ATOMIC);/g' os_dep/linux/ioctl_cfg80211.c
-          fi
-          if [ -f "core/rtw_br_ext.c" ]; then
-            perl -0pi -e 's/#include <net\/ip.h>/#include <net\/ip.h>\n#ifndef IPX_NODE_LEN\n#define IPX_NODE_LEN 6\nstruct ipx_addr {\n\t__be32 net;\n\t__u8 node[IPX_NODE_LEN];\n\t__be16 sock;\n};\nstruct ipxhdr {\n\t__be16 ipx_checksum;\n\t__be16 ipx_pktsize;\n\t__u8 ipx_tcnt;\n\t__u8 ipx_type;\n\tstruct ipx_addr ipx_source;\n\tstruct ipx_addr ipx_dest;\n};\n#endif/s' core/rtw_br_ext.c
-          fi
-
-      - name: Register RTL8812AU in Kernel Drivers Tree
+      - name: Configure and Generate .config
         run: |
-          cd kernel-source
-          mkdir -p drivers/net/wireless/realtek/rtl8812au
-          cp -r $GITHUB_WORKSPACE/rtl8812au/* drivers/net/wireless/realtek/rtl8812au/
+          export PATH="${{ env.GCC64_PATH }}:${{ env.GCC32_PATH }}:$PATH"
+          export CROSS_COMPILE=aarch64-linux-android-
+          export CROSS_COMPILE_ARM32=arm-linux-androideabi-
+          
+          # Load defconfig and normalize it against internal dependencies
+          make ${{ env.DEFCONFIG_NAME }}
+          make olddefconfig
 
-          # Hook rtl8812au into the parent Realtek driver Makefile
-          REALTEK_MAKEFILE="drivers/net/wireless/realtek/Makefile"
-          if [ -f "$REALTEK_MAKEFILE" ]; then
-            if ! grep -q "rtl8812au" "$REALTEK_MAKEFILE"; then
-              echo "obj-\$(CONFIG_RTL8812AU) += rtl8812au/" >> "$REALTEK_MAKEFILE"
-            fi
-          else
-            echo "obj-\$(CONFIG_RTL8812AU) += rtl8812au/" > "$REALTEK_MAKEFILE"
-          fi
-
-      - name: Compile Core Kernel and Built-in RTL8812AU Driver
+      - name: Compile Monolithic Kernel & Internal Modules
         run: |
-          cd kernel-source
-          export ARCH=arm64
-          export SUBARCH=arm64
-          export KCFLAGS="-w -Wno-error -gdwarf-4 -gno-record-gcc-switches"
+          export PATH="${{ env.GCC64_PATH }}:${{ env.GCC32_PATH }}:$PATH"
+          export CROSS_COMPILE=aarch64-linux-android-
+          export CROSS_COMPILE_ARM32=arm-linux-androideabi-
           
-          export HOSTCFLAGS="-w"
-          export HOSTCXXFLAGS="-w"
-          
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
-          export CC=clang
-          export HOSTCC=gcc
-          export HOSTCXX=g++
+          # Executes plain "make" to evaluate $(KBUILD_IMAGE), building the kernel, device trees, 
+          # and internal modules like pronto wlan under the same customized signature tag
+          make -j$(nproc) LOCALVERSION=${{ env.CUSTOM_NAME }} modules_prepare dtbs all modules
 
-          sed -i 's/expr length/expr/g' Makefile 2>/dev/null || true
-          mkdir -p out
-          echo "-iam_devu" > localversion
-
-          if [ ! -f "arch/arm64/configs/${{ github.event.inputs.defconfig_name }}" ]; then
-            echo "ERROR: Defconfig file ${{ github.event.inputs.defconfig_name }} not found in arch/arm64/configs/"
-            exit 1
-          fi
-
-          make O=out ARCH=arm64 ${{ github.event.inputs.defconfig_name }}
-
-          # Force enable CFG80211 and RTL8812AU as built-in (=y) options
-          sed -i '/CONFIG_CFG80211/d' out/.config
-          echo "CONFIG_CFG80211=y" >> out/.config
-          
-          sed -i '/CONFIG_RTL8812AU/d' out/.config
-          echo "CONFIG_RTL8812AU=y" >> out/.config
-
-          if grep -q "CONFIG_PRONTO_WLAN" out/.config; then
-            sed -i '/CONFIG_PRONTO_WLAN/d' out/.config
-            echo "CONFIG_PRONTO_WLAN=m" >> out/.config
-          fi
-
-          make O=out ARCH=arm64 olddefconfig
-
-          # Disable module signatures/version checks for safety
-          sed -i 's/CONFIG_MODULE_SIG=y/# CONFIG_MODULE_SIG is not set/g' out/.config
-          sed -i 's/CONFIG_MODULE_SIG_FORCE=y/# CONFIG_MODULE_SIG_FORCE is not set/g' out/.config
-          sed -i 's/CONFIG_MODVERSIONS=y/# CONFIG_MODVERSIONS is not set/g' out/.config
-          echo "# CONFIG_MODULE_SIG is not set" >> out/.config
-          echo "# CONFIG_MODULE_SIG_FORCE is not set" >> out/.config
-          echo "# CONFIG_MODVERSIONS is not set" >> out/.config
-
-          make O=out ARCH=arm64 olddefconfig
-
-          echo "=== STARTING IN-TREE KERNEL & DRIVER BUILD ==="
-          if ! make -j$(nproc) O=out ARCH=arm64; then
-            echo "=== BUILD FAILED: RE-RUNNING WITH 1 THREAD TO CAPTURE EXACT ERROR ==="
-            make -j1 O=out ARCH=arm64
-          fi
-
-      - name: Package with AnyKernel3
+      - name: Compile External RTL88xxau Module
         run: |
-          git clone https://github.com/osm0sis/AnyKernel3 AnyKernel3
-          cd AnyKernel3
+          export PATH="${{ env.GCC64_PATH }}:${{ env.GCC32_PATH }}:$PATH"
+          export CROSS_COMPILE=aarch64-linux-android-
           
-          if [ -f "../kernel-source/out/arch/arm64/boot/Image.gz-dtb" ]; then
-            cp ../kernel-source/out/arch/arm64/boot/Image.gz-dtb .
-          elif [ -f "../kernel-source/out/arch/arm64/boot/Image" ]; then
-            cp ../kernel-source/out/arch/arm64/boot/Image .
-          fi
+          cd rtl88xxau_src
+          # Compile external realtek driver linking structural signatures directly to the workspace output
+          make ARCH=arm64 LOCALVERSION=${{ env.CUSTOM_NAME }} KSRC=${{ github.workspace }}
 
-          sed -i 's/do.devicecheck=1/do.devicecheck=0/g' anykernel.sh
-          zip -r9 ../Kernel_SM-T290.zip * -x .git* README.md
-
-      - name: Upload Finished Flashable Kernel Zip
+      - name: Upload Kernel Image & Driver Module Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Kernel_SM-T290-Flashable
-          path: Kernel_SM-T290.zip
+          name: Compiled-Kernel-And-Drivers
+          path: |
+            arch/arm64/boot/Image
+            arch/arm64/boot/Image.gz
+            arch/arm64/boot/Image-dtb
+            arch/arm64/boot/Image.gz-dtb
+            drivers/staging/prima/*.ko
+            drivers/staging/qcacld-2.0/*.ko
+            rtl88xxau_src/*.ko
+          if-no-files-found: warn
           
