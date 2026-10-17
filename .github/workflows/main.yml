@@ -5,7 +5,7 @@ on:
 
 env:
   ARCH: arm64
-  DEFCONFIG_NAME: sdm429_defconfig
+  DEFCONFIG_NAME: lineageos_gtowifi_defconfig
   CUSTOM_NAME: "-iam_devu"
 
 jobs:
