@@ -37,7 +37,7 @@ jobs:
       - name: Clone Your RTL8812AU Repository Branch
         run: |
           # Target your personal fork repository and explicitly grab branch v5.2.20
-          git clone --depth=1 -b v5.2.20 "https://github.com" rtl88xxau_src
+          git clone --depth=1 -b v5.2.20 "https://github.com/devankv84-rgb/rtl8812au/tree/v5.2.20"
 
       - name: Inject Out-of-Tree & Wireless Configurations
         run: |
