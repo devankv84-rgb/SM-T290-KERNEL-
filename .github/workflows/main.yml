@@ -94,6 +94,11 @@ jobs:
           git checkout drivers/input/touchscreen/Makefile
           echo "CFLAGS_touch-info.o := -Wno-format" >> drivers/input/touchscreen/Makefile
 
+      - name: Fix Prima Driver Incompatible Flags
+        run: |
+          cd kernel
+          find drivers/staging/prima -name "Makefile" -o -name "Kbuild" | xargs sed -i 's/-Wno-non-literal-null-conversion//g; s/-Wno-typedef-redefinition//g; s/-Wno-parentheses-equality//g; s/-Wno-pointer-bool-conversion//g; s/-Wno-enum-conversion//g'
+
       - name: Clone LineageOS 20 Toolchains (Clang r416183b & AOSP GCC)
         run: |
           cd kernel
@@ -154,3 +159,4 @@ jobs:
         with:
           name: SDM429-Lineage20-Flashable-Kernel-Zip
           path: SDM429-Lineage20-Kernel.zip
+          
