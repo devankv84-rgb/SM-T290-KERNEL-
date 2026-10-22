@@ -61,7 +61,7 @@ jobs:
           git apply ../rtl_patch/DJY-Add-aircrack-ng-rtl88XXAU-5.6.4.5.patch || patch -p1 < ../rtl_patch/DJY-Add-aircrack-ng-rtl88XXAU-5.6.4.5.patch
           echo "ccflags-y += -Wno-error" >> drivers/88XXAU/Makefile
 
-      - name: Configure Defconfig (Localversion, Module Signing, Wi-Fi & Bluetooth)
+      - name: Configure Defconfig (Localversion, Module Signing, Wi-Fi & Bluetooth Built-in)
         run: |
           cd kernel
           DEFCONFIG_PATH="arch/arm64/configs/${{ github.event.inputs.defconfig }}"
@@ -81,11 +81,11 @@ jobs:
           # Enable Wi-Fi driver as built-in
           echo 'CONFIG_88XXAU=y' >> "$DEFCONFIG_PATH"
 
-          # Enable Bluetooth Core and set USB HCI driver as a module (=m) with Realtek support
+          # Enable Bluetooth Core and set USB HCI driver as built-in (=y) with Realtek support
           echo 'CONFIG_BT=y' >> "$DEFCONFIG_PATH"
           echo 'CONFIG_BT_BREDR=y' >> "$DEFCONFIG_PATH"
           echo 'CONFIG_BT_LE=y' >> "$DEFCONFIG_PATH"
-          echo 'CONFIG_BT_HCIBTUSB=m' >> "$DEFCONFIG_PATH"
+          echo 'CONFIG_BT_HCIBTUSB=y' >> "$DEFCONFIG_PATH"
           echo 'CONFIG_BT_HCIBTUSB_RTL=y' >> "$DEFCONFIG_PATH"
 
       - name: Download Realtek Bluetooth Firmware (UB500 / RTL8761B)
