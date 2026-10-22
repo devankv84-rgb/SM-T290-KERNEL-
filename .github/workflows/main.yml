@@ -54,10 +54,25 @@ jobs:
           submodules: true
           path: kernel
 
+      - name: Disable Module Signing in Defconfig
+        run: |
+          cd kernel
+          DEFCONFIG_PATH="arch/arm64/configs/${{ github.event.inputs.defconfig }}"
+          
+          # Disable module signing flags to allow unsigned/custom pronto_wlan modules
+          sed -i 's/CONFIG_MODULE_SIG=y/CONFIG_MODULE_SIG=n/' "$DEFCONFIG_PATH"
+          sed -i 's/CONFIG_MODULE_SIG_FORCE=y/CONFIG_MODULE_SIG_FORCE=n/' "$DEFCONFIG_PATH"
+          sed -i 's/CONFIG_MODULE_SIG_SHA512=y/# CONFIG_MODULE_SIG_SHA512 is not set/' "$DEFCONFIG_PATH"
+          
+          # If not explicitly present in defconfig, append them to ensure they remain disabled
+          grep -q "CONFIG_MODULE_SIG=" "$DEFCONFIG_PATH" || echo "CONFIG_MODULE_SIG=n" >> "$DEFCONFIG_PATH"
+          grep -q "CONFIG_MODULE_SIG_FORCE=" "$DEFCONFIG_PATH" || echo "CONFIG_MODULE_SIG_FORCE=n" >> "$DEFCONFIG_PATH"
+
       - name: Patch Touch Info Source Error
         run: |
           cd kernel
-          sed -i 's/atomic_read(&tid->p->mask) & BIT(GS_KEY_DOUBLE_TAP)/(int)(atomic_read(&tid->p->mask) & BIT(GS_KEY_DOUBLE_TAP))/' drivers/input/touchscreen/touch-info.c
+          git checkout drivers/input/touchscreen/touch-info.c
+          sed -i 's/return scnprintf(buf, PAGE_SIZE, "%d\\n", atomic_read(&tid->p->mask) & BIT(GS_KEY_DOUBLE_TAP));/return scnprintf(buf, PAGE_SIZE, "%d\\n", (int)(atomic_read(&tid->p->mask) & BIT(GS_KEY_DOUBLE_TAP)));/' drivers/input/touchscreen/touch-info.c
 
       - name: Clone LineageOS 20 Toolchains (Clang r416183b & AOSP GCC)
         run: |
