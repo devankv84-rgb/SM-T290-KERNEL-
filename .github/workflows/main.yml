@@ -1,0 +1,113 @@
+name: Compile Samsung SDM429 Kernel - Lineage 20
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Kernel Branch (e.g. lineage-20)'
+        required: true
+        default: 'lineage-20'
+      defconfig:
+        description: 'Defconfig Name'
+        required: true
+        default: 'gtowifi_eur_open_defconfig'
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Free Up Disk Space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          sudo apt-get clean
+
+      - name: Disable Apt Translations
+        run: |
+          echo 'Acquire::Languages "none";' | sudo tee /etc/apt/apt.conf.d/99no-translations
+
+      - name: Maximize Build Disk Space
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 8192
+          swap-size-mb: 4096
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+
+      - name: Check Available Disk Space
+        run: df -h
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev lib32z1-dev libelf-dev liblz4-tool libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc yasm zlib1g-dev
+
+      - name: Checkout Kernel Source
+        uses: actions/checkout@v4
+        with:
+          repository: LineageOS/android_kernel_samsung_sdm429
+          ref: ${{ github.event.inputs.branch }}
+          submodules: true
+          path: kernel
+
+      - name: Clone LineageOS 20 Toolchains (Clang r416183b & AOSP GCC)
+        run: |
+          cd kernel
+          mkdir -p prebuilts/clang/host/linux-x86
+          
+          # Clone Clang compatible with Android 13 / Lineage 20
+          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b prebuilts/clang/host/linux-x86/clang-r416183b
+
+          mkdir -p prebuilts/gcc/linux-x86/aarch64
+          mkdir -p prebuilts/gcc/linux-x86/arm
+          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9
+          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9 prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9
+
+      - name: Compile Kernel
+        run: |
+          cd kernel
+          export TZ=UTC
+          
+          CLANG_BIN="$PWD/prebuilts/clang/host/linux-x86/clang-r416183b/bin"
+          GCC64_BIN="$PWD/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin"
+          GCC32_BIN="$PWD/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9/bin"
+          
+          export PATH="$CLANG_BIN:$GCC64_BIN:$GCC32_BIN:$PATH"
+          export LD_LIBRARY_PATH="$PWD/prebuilts/clang/host/linux-x86/clang-r416183b/lib64:$LD_LIBRARY_PATH"
+
+          # Export required cross-compilation variables for Android 13 toolchain requirements
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CC=clang
+          export CLANG_TRIPLE=aarch64-linux-gnu-
+          export CROSS_COMPILE=aarch64-linux-android-
+          export CROSS_COMPILE_ARM32=arm-linux-androideabi-
+
+          make -j$(nproc --all) O=out ${{ github.event.inputs.defconfig }}
+          make -j$(nproc --all) O=out
+
+      - name: Package with AnyKernel3
+        run: |
+          git clone https://github.com/osm0sis/AnyKernel3 AnyKernel3
+          rm -rf AnyKernel3/.git
+          
+          if [ -f "kernel/out/arch/arm64/boot/Image.gz-dtb" ]; then
+            cp kernel/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
+          elif [ -f "kernel/out/arch/arm64/boot/Image.gz" ]; then
+            cp kernel/out/arch/arm64/boot/Image.gz AnyKernel3/
+          fi
+
+          find kernel/out -name "*.ko" -exec cp {} AnyKernel3/modules/ 2>/dev/null || true
+
+          cd AnyKernel3
+          zip -r9 ../SDM429-Lineage20-Kernel.zip *
+
+      - name: Upload Kernel Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SDM429-Lineage20-Flashable-Kernel-Zip
+          path: SDM429-Lineage20-Kernel.zip
