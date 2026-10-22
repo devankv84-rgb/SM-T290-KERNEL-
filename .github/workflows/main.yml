@@ -126,6 +126,11 @@ jobs:
           sed -i 's/CONFIG_PLATFORM_I386_PC = y/CONFIG_PLATFORM_I386_PC = n/g' Makefile
           sed -i 's/CONFIG_PLATFORM_ARM64_ANDROID = n/CONFIG_PLATFORM_ARM64_ANDROID = y/g' Makefile || sed -i 's/CONFIG_PLATFORM_ARM64-RK3399 = n/CONFIG_PLATFORM_ARM64-RK3399 = y/g' Makefile || true
           
+          # Remove modern GCC flags unsupported by GCC 4.9 toolchain
+          sed -i 's/-Wno-stringop-overread//g' Makefile
+          sed -i 's/-Wno-cast-function-type//g' Makefile
+          sed -i 's/-Werror=cast-function-type//g' Makefile
+          
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-android- KSRC=$PWD/../../../../out modules
           cp *.ko ../../../../dist_modules/
 
@@ -151,4 +156,3 @@ jobs:
         with:
           name: SDM429-Lineage20-Flashable-Kernel-Zip
           path: SDM429-Lineage20-Kernel.zip
-          
