@@ -54,17 +54,22 @@ jobs:
           submodules: true
           path: kernel
 
-      - name: Disable Module Signing in Defconfig
+      - name: Configure Defconfig (Localversion & Module Signing)
         run: |
           cd kernel
           DEFCONFIG_PATH="arch/arm64/configs/${{ github.event.inputs.defconfig }}"
           
+          # Disable module signing flags to prevent module rejection
           sed -i 's/CONFIG_MODULE_SIG=y/CONFIG_MODULE_SIG=n/' "$DEFCONFIG_PATH"
           sed -i 's/CONFIG_MODULE_SIG_FORCE=y/CONFIG_MODULE_SIG_FORCE=n/' "$DEFCONFIG_PATH"
           sed -i 's/CONFIG_MODULE_SIG_SHA512=y/# CONFIG_MODULE_SIG_SHA512 is not set/' "$DEFCONFIG_PATH"
           
           grep -q "CONFIG_MODULE_SIG=" "$DEFCONFIG_PATH" || echo "CONFIG_MODULE_SIG=n" >> "$DEFCONFIG_PATH"
           grep -q "CONFIG_MODULE_SIG_FORCE=" "$DEFCONFIG_PATH" || echo "CONFIG_MODULE_SIG_FORCE=n" >> "$DEFCONFIG_PATH"
+
+          # Set custom localversion to -iam_devu
+          sed -i '/CONFIG_LOCALVERSION\>/d' "$DEFCONFIG_PATH"
+          echo 'CONFIG_LOCALVERSION="-iam_devu"' >> "$DEFCONFIG_PATH"
 
       - name: Fix Touch Info Format Warning Safely
         run: |
