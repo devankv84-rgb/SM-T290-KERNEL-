@@ -54,11 +54,12 @@ jobs:
           submodules: true
           path: kernel
 
-      - name: Configure Defconfig (Localversion & Module Signing)
+      - name: Configure Defconfig (Localversion, Module Signing & RTL88xxau)
         run: |
           cd kernel
           DEFCONFIG_PATH="arch/arm64/configs/${{ github.event.inputs.defconfig }}"
           
+          # Disable module signing flags to prevent module rejection
           sed -i 's/CONFIG_MODULE_SIG=y/CONFIG_MODULE_SIG=n/' "$DEFCONFIG_PATH"
           sed -i 's/CONFIG_MODULE_SIG_FORCE=y/CONFIG_MODULE_SIG_FORCE=n/' "$DEFCONFIG_PATH"
           sed -i 's/CONFIG_MODULE_SIG_SHA512=y/# CONFIG_MODULE_SIG_SHA512 is not set/' "$DEFCONFIG_PATH"
@@ -66,8 +67,25 @@ jobs:
           grep -q "CONFIG_MODULE_SIG=" "$DEFCONFIG_PATH" || echo "CONFIG_MODULE_SIG=n" >> "$DEFCONFIG_PATH"
           grep -q "CONFIG_MODULE_SIG_FORCE=" "$DEFCONFIG_PATH" || echo "CONFIG_MODULE_SIG_FORCE=n" >> "$DEFCONFIG_PATH"
 
+          # Set custom localversion to -iam_devu
           sed -i '/CONFIG_LOCALVERSION\>/d' "$DEFCONFIG_PATH"
           echo 'CONFIG_LOCALVERSION="-iam_devu"' >> "$DEFCONFIG_PATH"
+
+          # Explicitly enable wireless networking options and RTL88xxau driver
+          echo "CONFIG_NET=y" >> "$DEFCONFIG_PATH"
+          echo "CONFIG_WIRELESS=y" >> "$DEFCONFIG_PATH"
+          echo "CONFIG_CFG80211=m" >> "$DEFCONFIG_PATH"
+          echo "CONFIG_MAC80211=m" >> "$DEFCONFIG_PATH"
+          echo "CONFIG_WLAN=y" >> "$DEFCONFIG_PATH"
+          
+          sed -i '/CONFIG_RTL88XXAU\>/d' "$DEFCONFIG_PATH"
+          echo "CONFIG_RTL88XXAU=m" >> "$DEFCONFIG_PATH"
+
+      - name: Apply RTL88xxau USB Wi-Fi Patch
+        run: |
+          cd kernel
+          curl -L "https://gitlab.com/kalilinux/nethunter/build-scripts/kali-nethunter-kernel-builder/-/raw/main/patches/4.09/add-rtl88xxau-5.6.4.2-drivers.patch?ref_type=heads" -o rtl88xxau.patch
+          git apply rtl88xxau.patch || git apply --reject rtl88xxau.patch
 
       - name: Fix Touch Info Format Warning Safely
         run: |
@@ -76,18 +94,11 @@ jobs:
           git checkout drivers/input/touchscreen/Makefile
           echo "CFLAGS_touch-info.o := -Wno-format" >> drivers/input/touchscreen/Makefile
 
-      - name: Clone aircrack-ng rtl8812au Driver (Specific Commit)
-        run: |
-          cd kernel
-          mkdir -p drivers/net/wireless/rtl8812au
-          git clone https://github.com/aircrack-ng/rtl8812au.git drivers/net/wireless/rtl8812au
-          cd drivers/net/wireless/rtl8812au
-          git checkout 337d3d6779062da59d7d7de06930bce3ad84428a
-
       - name: Clone LineageOS 20 Toolchains (Clang r416183b & AOSP GCC)
         run: |
           cd kernel
           mkdir -p prebuilts/clang/host/linux-x86
+          
           git clone --depth=1 https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b prebuilts/clang/host/linux-x86/clang-r416183b
 
           mkdir -p prebuilts/gcc/linux-x86/aarch64
@@ -120,19 +131,6 @@ jobs:
           
           mkdir -p dist_modules
           make O=out INSTALL_MOD_PATH=$PWD/dist_modules modules_install
-
-          # Compile the external rtl8812au driver explicitly against the output kernel
-          cd drivers/net/wireless/rtl8812au
-          sed -i 's/CONFIG_PLATFORM_I386_PC = y/CONFIG_PLATFORM_I386_PC = n/g' Makefile
-          sed -i 's/CONFIG_PLATFORM_ARM64_ANDROID = n/CONFIG_PLATFORM_ARM64_ANDROID = y/g' Makefile || sed -i 's/CONFIG_PLATFORM_ARM64-RK3399 = n/CONFIG_PLATFORM_ARM64-RK3399 = y/g' Makefile || true
-          
-          # Remove modern GCC flags unsupported by GCC 4.9 toolchain
-          sed -i 's/-Wno-stringop-overread//g' Makefile
-          sed -i 's/-Wno-cast-function-type//g' Makefile
-          sed -i 's/-Werror=cast-function-type//g' Makefile
-          
-          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-android- KSRC=$PWD/../../../../out modules
-          cp *.ko ../../../../dist_modules/
 
       - name: Package with AnyKernel3
         run: |
