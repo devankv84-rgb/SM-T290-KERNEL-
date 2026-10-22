@@ -61,7 +61,7 @@ jobs:
           git apply ../rtl_patch/DJY-Add-aircrack-ng-rtl88XXAU-5.6.4.5.patch || patch -p1 < ../rtl_patch/DJY-Add-aircrack-ng-rtl88XXAU-5.6.4.5.patch
           echo "ccflags-y += -Wno-error" >> drivers/88XXAU/Makefile
 
-      - name: Configure Defconfig (Localversion, Module Signing & RTL88XXAU)
+      - name: Configure Defconfig (Localversion, Module Signing, Wi-Fi & Bluetooth)
         run: |
           cd kernel
           DEFCONFIG_PATH="arch/arm64/configs/${{ github.event.inputs.defconfig }}"
@@ -78,8 +78,21 @@ jobs:
           sed -i '/CONFIG_LOCALVERSION\>/d' "$DEFCONFIG_PATH"
           echo 'CONFIG_LOCALVERSION="-iam_devu"' >> "$DEFCONFIG_PATH"
 
-          # Enable the newly patched RTL88XXAU driver as built-in (=y)
+          # Enable Wi-Fi driver as built-in
           echo 'CONFIG_88XXAU=y' >> "$DEFCONFIG_PATH"
+
+          # Enable Bluetooth Core and set USB HCI driver as a module (=m) with Realtek support
+          echo 'CONFIG_BT=y' >> "$DEFCONFIG_PATH"
+          echo 'CONFIG_BT_BREDR=y' >> "$DEFCONFIG_PATH"
+          echo 'CONFIG_BT_LE=y' >> "$DEFCONFIG_PATH"
+          echo 'CONFIG_BT_HCIBTUSB=m' >> "$DEFCONFIG_PATH"
+          echo 'CONFIG_BT_HCIBTUSB_RTL=y' >> "$DEFCONFIG_PATH"
+
+      - name: Download Realtek Bluetooth Firmware (UB500 / RTL8761B)
+        run: |
+          mkdir -p firmware_rtl/rtl_bt
+          curl -L https://raw.githubusercontent.com/Realtek-OpenSource/android_hardware_realtek/rtk1395/bt/rtkbt/Firmware/BT/rtl8761b_fw -o firmware_rtl/rtl_bt/rtl8761b_fw.bin
+          curl -L https://raw.githubusercontent.com/Realtek-OpenSource/android_hardware_realtek/rtk1395/bt/rtkbt/Firmware/BT/rtl8761b_config -o firmware_rtl/rtl_bt/rtl8761b_config.bin
 
       - name: Fix Touch Info Format Warning Safely
         run: |
@@ -136,6 +149,10 @@ jobs:
           elif [ -f "kernel/out/arch/arm64/boot/Image.gz" ]; then
             cp kernel/out/arch/arm64/boot/Image.gz AnyKernel3/
           fi
+
+          # Bundle Realtek Bluetooth firmware blobs into AnyKernel3 vendor partition structure
+          mkdir -p AnyKernel3/vendor/firmware/rtl_bt/
+          cp -r firmware_rtl/rtl_bt/* AnyKernel3/vendor/firmware/rtl_bt/
 
           mkdir -p AnyKernel3/modules/vendor/lib/modules/
           find kernel/dist_modules -name "*.ko" -exec cp {} AnyKernel3/modules/vendor/lib/modules/ \;
