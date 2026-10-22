@@ -66,12 +66,12 @@ jobs:
           grep -q "CONFIG_MODULE_SIG=" "$DEFCONFIG_PATH" || echo "CONFIG_MODULE_SIG=n" >> "$DEFCONFIG_PATH"
           grep -q "CONFIG_MODULE_SIG_FORCE=" "$DEFCONFIG_PATH" || echo "CONFIG_MODULE_SIG_FORCE=n" >> "$DEFCONFIG_PATH"
 
-      - name: Exclude Touch Info from Compilation
+      - name: Fix Touch Info Format Warning Safely
         run: |
           cd kernel
           git checkout drivers/input/touchscreen/touch-info.c
-          # Remove touch-info.o from the Makefile so it is bypassed completely
-          sed -i '/touch-info.o/d' drivers/input/touchscreen/Makefile
+          git checkout drivers/input/touchscreen/Makefile
+          echo "CFLAGS_touch-info.o := -Wno-format" >> drivers/input/touchscreen/Makefile
 
       - name: Clone LineageOS 20 Toolchains (Clang r416183b & AOSP GCC)
         run: |
@@ -133,4 +133,3 @@ jobs:
         with:
           name: SDM429-Lineage20-Flashable-Kernel-Zip
           path: SDM429-Lineage20-Kernel.zip
-          
