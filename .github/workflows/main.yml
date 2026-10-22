@@ -76,23 +76,28 @@ jobs:
           git checkout drivers/input/touchscreen/Makefile
           echo "CFLAGS_touch-info.o := -Wno-format" >> drivers/input/touchscreen/Makefile
 
-      - name: Add TP-Link Archer T2U Plus (rtl8821au) Driver
+      - name: Add aircrack-ng rtl8812au Driver (Specific Commit)
         run: |
           cd kernel
-          mkdir -p drivers/net/wireless/rtl8821au
-          git clone --depth=1 https://github.com/morrownr/8821au drivers/net/wireless/rtl8821au
+          mkdir -p drivers/net/wireless/rtl8812au
           
+          # Clone the requested repository and checkout the specific commit hash
+          git clone https://github.com/aircrack-ng/rtl8812au.git drivers/net/wireless/rtl8812au
+          cd drivers/net/wireless/rtl8812au
+          git checkout 337d3d6779062da59d7d7de06930bce3ad84428a
+          cd ../../../..
+
           # Hook driver into the kernel's wireless drivers Makefile and Kconfig if not already present
-          if ! grep -q "rtl8821au" drivers/net/wireless/Makefile; then
-            echo 'obj-$(CONFIG_RTL8821AU) += rtl8821au/' >> drivers/net/wireless/Makefile
+          if ! grep -q "rtl8812au" drivers/net/wireless/Makefile; then
+            echo 'obj-$(CONFIG_8812au) += rtl8812au/' >> drivers/net/wireless/Makefile
           fi
-          if ! grep -q "rtl8821au" drivers/net/wireless/Kconfig; then
-            echo 'source "drivers/net/wireless/rtl8821au/Kconfig"' >> drivers/net/wireless/Kconfig
+          if ! grep -q "rtl8812au" drivers/net/wireless/Kconfig; then
+            echo 'source "drivers/net/wireless/rtl8812au/Kconfig"' >> drivers/net/wireless/Kconfig
           fi
           
           # Force enable the driver as a module in defconfig
           DEFCONFIG_PATH="arch/arm64/configs/${{ github.event.inputs.defconfig }}"
-          echo "CONFIG_RTL8821AU=m" >> "$DEFCONFIG_PATH"
+          echo "CONFIG_8812au=m" >> "$DEFCONFIG_PATH"
 
       - name: Clone LineageOS 20 Toolchains (Clang r416183b & AOSP GCC)
         run: |
