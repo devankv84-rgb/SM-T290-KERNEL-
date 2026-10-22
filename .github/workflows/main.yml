@@ -78,8 +78,8 @@ jobs:
           sed -i '/CONFIG_LOCALVERSION\>/d' "$DEFCONFIG_PATH"
           echo 'CONFIG_LOCALVERSION="-iam_devu"' >> "$DEFCONFIG_PATH"
 
-          # Enable the newly patched RTL88XXAU driver as a loadable module (=m)
-          echo 'CONFIG_88XXAU=m' >> "$DEFCONFIG_PATH"
+          # Enable the newly patched RTL88XXAU driver as built-in (=y)
+          echo 'CONFIG_88XXAU=y' >> "$DEFCONFIG_PATH"
 
       - name: Fix Touch Info Format Warning Safely
         run: |
