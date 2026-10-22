@@ -59,7 +59,6 @@ jobs:
           cd kernel
           DEFCONFIG_PATH="arch/arm64/configs/${{ github.event.inputs.defconfig }}"
           
-          # Disable module signing flags to prevent module rejection
           sed -i 's/CONFIG_MODULE_SIG=y/CONFIG_MODULE_SIG=n/' "$DEFCONFIG_PATH"
           sed -i 's/CONFIG_MODULE_SIG_FORCE=y/CONFIG_MODULE_SIG_FORCE=n/' "$DEFCONFIG_PATH"
           sed -i 's/CONFIG_MODULE_SIG_SHA512=y/# CONFIG_MODULE_SIG_SHA512 is not set/' "$DEFCONFIG_PATH"
@@ -67,7 +66,6 @@ jobs:
           grep -q "CONFIG_MODULE_SIG=" "$DEFCONFIG_PATH" || echo "CONFIG_MODULE_SIG=n" >> "$DEFCONFIG_PATH"
           grep -q "CONFIG_MODULE_SIG_FORCE=" "$DEFCONFIG_PATH" || echo "CONFIG_MODULE_SIG_FORCE=n" >> "$DEFCONFIG_PATH"
 
-          # Set custom localversion to -iam_devu
           sed -i '/CONFIG_LOCALVERSION\>/d' "$DEFCONFIG_PATH"
           echo 'CONFIG_LOCALVERSION="-iam_devu"' >> "$DEFCONFIG_PATH"
 
@@ -77,6 +75,24 @@ jobs:
           git checkout drivers/input/touchscreen/touch-info.c
           git checkout drivers/input/touchscreen/Makefile
           echo "CFLAGS_touch-info.o := -Wno-format" >> drivers/input/touchscreen/Makefile
+
+      - name: Add TP-Link Archer T2U Plus (rtl8821au) Driver
+        run: |
+          cd kernel
+          mkdir -p drivers/net/wireless/rtl8821au
+          git clone --depth=1 https://github.com/morrownr/8821au drivers/net/wireless/rtl8821au
+          
+          # Hook driver into the kernel's wireless drivers Makefile and Kconfig if not already present
+          if ! grep -q "rtl8821au" drivers/net/wireless/Makefile; then
+            echo 'obj-$(CONFIG_RTL8821AU) += rtl8821au/' >> drivers/net/wireless/Makefile
+          fi
+          if ! grep -q "rtl8821au" drivers/net/wireless/Kconfig; then
+            echo 'source "drivers/net/wireless/rtl8821au/Kconfig"' >> drivers/net/wireless/Kconfig
+          fi
+          
+          # Force enable the driver as a module in defconfig
+          DEFCONFIG_PATH="arch/arm64/configs/${{ github.event.inputs.defconfig }}"
+          echo "CONFIG_RTL8821AU=m" >> "$DEFCONFIG_PATH"
 
       - name: Clone LineageOS 20 Toolchains (Clang r416183b & AOSP GCC)
         run: |
