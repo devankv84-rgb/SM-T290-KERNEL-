@@ -43,20 +43,8 @@ jobs:
 
       - name: Install System Dependencies
         run: |
-          echo "Stopping background package services..."
-          sudo systemctl stop unattended-upgrades || true
-          sudo killall apt apt-get dpkg || true
-          
-          echo "Cleaning any stale locks..."
-          sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock
-          
-          echo "Installing dependencies..."
-          sudo apt-get update -y
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            bc bison build-essential ccache curl flex g++-multilib gcc-multilib \
-            git gnupg gperf imagemagick lib32ncurses5-dev lib32z1-dev libelf-dev \
-            liblz4-tool libncurses5-dev libsdl1.2-dev libssl-dev libxml2 \
-            libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc yasm zlib1g-dev
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev lib32z1-dev libelf-dev liblz4-tool libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc yasm zlib1g-dev
 
       - name: Checkout Kernel Source
         uses: actions/checkout@v4
@@ -66,7 +54,7 @@ jobs:
           submodules: true
           path: kernel
 
-      - name: Configure Defconfig (Localversion, Module Signing & RTL88xxau)
+      - name: Configure Defconfig (Localversion & Module Signing)
         run: |
           cd kernel
           DEFCONFIG_PATH="arch/arm64/configs/${{ github.event.inputs.defconfig }}"
@@ -83,33 +71,12 @@ jobs:
           sed -i '/CONFIG_LOCALVERSION\>/d' "$DEFCONFIG_PATH"
           echo 'CONFIG_LOCALVERSION="-iam_devu"' >> "$DEFCONFIG_PATH"
 
-          # Explicitly enable wireless networking options and RTL88xxau driver
-          echo "CONFIG_NET=y" >> "$DEFCONFIG_PATH"
-          echo "CONFIG_WIRELESS=y" >> "$DEFCONFIG_PATH"
-          echo "CONFIG_CFG80211=m" >> "$DEFCONFIG_PATH"
-          echo "CONFIG_MAC80211=m" >> "$DEFCONFIG_PATH"
-          echo "CONFIG_WLAN=y" >> "$DEFCONFIG_PATH"
-          
-          sed -i '/CONFIG_RTL88XXAU\>/d' "$DEFCONFIG_PATH"
-          echo "CONFIG_RTL88XXAU=m" >> "$DEFCONFIG_PATH"
-
-      - name: Apply RTL88xxau USB Wi-Fi Patch
-        run: |
-          cd kernel
-          curl -L "https://gitlab.com/kalilinux/nethunter/build-scripts/kali-nethunter-kernel-builder/-/raw/main/patches/4.09/add-rtl88xxau-5.6.4.2-drivers.patch?ref_type=heads" -o rtl88xxau.patch
-          git apply rtl88xxau.patch || git apply --reject rtl88xxau.patch
-
       - name: Fix Touch Info Format Warning Safely
         run: |
           cd kernel
           git checkout drivers/input/touchscreen/touch-info.c
           git checkout drivers/input/touchscreen/Makefile
           echo "CFLAGS_touch-info.o := -Wno-format" >> drivers/input/touchscreen/Makefile
-
-      - name: Fix Prima Driver Incompatible Flags
-        run: |
-          cd kernel
-          find drivers/staging/prima -name "Makefile" -o -name "Kbuild" | xargs sed -i 's/-Wno-non-literal-null-conversion//g; s/-Wno-typedef-redefinition//g; s/-Wno-parentheses-equality//g; s/-Wno-pointer-bool-conversion//g; s/-Wno-enum-conversion//g'
 
       - name: Clone LineageOS 20 Toolchains (Clang r416183b & AOSP GCC)
         run: |
@@ -123,7 +90,7 @@ jobs:
           git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9
           git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9 prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9
 
-      - name: Compile Kernel and Modules
+      - name: Compile Main Kernel and Internal Modules
         run: |
           cd kernel
           export TZ=UTC
@@ -149,6 +116,35 @@ jobs:
           mkdir -p dist_modules
           make O=out INSTALL_MOD_PATH=$PWD/dist_modules modules_install
 
+      - name: Build RTL8821AU Out-of-Tree Driver (Archer T2U Plus)
+        run: |
+          # Clone the modern RTL8812AU / RTL8821AU out-of-tree driver source
+          git clone --depth=1 https://github.com/morrownr/8812au-20210629.git rtl8812au
+
+          cd kernel
+          CLANG_BIN="$PWD/prebuilts/clang/host/linux-x86/clang-r416183b/bin"
+          GCC64_BIN="$PWD/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin"
+          GCC32_BIN="$PWD/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9/bin"
+          
+          export PATH="$CLANG_BIN:$GCC64_BIN:$GCC32_BIN:$PATH"
+          export LD_LIBRARY_PATH="$PWD/prebuilts/clang/host/linux-x86/clang-r416183b/lib64:$LD_LIBRARY_PATH"
+
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CC=clang
+          export CLANG_TRIPLE=aarch64-linux-gnu-
+          export CROSS_COMPILE=aarch64-linux-android-
+          export CROSS_COMPILE_ARM32=arm-linux-androideabi-
+
+          KSRC="$PWD/out"
+          
+          cd ../rtl8812au
+          # Compile driver against the built kernel tree
+          make -j$(nproc --all) KSRC="$KSRC" ARCH=arm64 CC=clang CROSS_COMPILE=aarch64-linux-android-
+          
+          # Copy compiled driver module to dist_modules staging
+          find . -name "*.ko" -exec cp {} ../kernel/dist_modules/ \;
+
       - name: Package with AnyKernel3
         run: |
           git clone https://github.com/osm0sis/AnyKernel3 AnyKernel3
@@ -171,3 +167,4 @@ jobs:
         with:
           name: SDM429-Lineage20-Flashable-Kernel-Zip
           path: SDM429-Lineage20-Kernel.zip
+          
