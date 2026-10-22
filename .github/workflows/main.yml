@@ -54,12 +54,12 @@ jobs:
           submodules: true
           path: kernel
 
-      - name: Apply RTL88XXAU In-Tree Patch (Johanlike / Aircrack-ng)
+      - name: Apply RTL88XXAU In-Tree Patch & Fix Warnings
         run: |
           git clone --depth=1 https://github.com/johanlike/DJY_88XXAU_For_4.4__4.9_4.14_4.19_Android_Kernel_Patch.git rtl_patch
           cd kernel
-          # Apply the 5.6.4.5 aircrack-ng driver patch directly into the kernel source tree
           git apply ../rtl_patch/DJY-Add-aircrack-ng-rtl88XXAU-5.6.4.5.patch || patch -p1 < ../rtl_patch/DJY-Add-aircrack-ng-rtl88XXAU-5.6.4.5.patch
+          echo "ccflags-y += -Wno-error=declaration-after-statement -Wno-error=empty-body -Wno-error=implicit-fallthrough" >> drivers/88XXAU/Makefile
 
       - name: Configure Defconfig (Localversion, Module Signing & RTL88XXAU)
         run: |
