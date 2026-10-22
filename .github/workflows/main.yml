@@ -54,7 +54,14 @@ jobs:
           submodules: true
           path: kernel
 
-      - name: Configure Defconfig (Localversion & Module Signing)
+      - name: Apply RTL88XXAU In-Tree Patch (Johanlike / Aircrack-ng)
+        run: |
+          git clone --depth=1 https://github.com/johanlike/DJY_88XXAU_For_4.4__4.9_4.14_4.19_Android_Kernel_Patch.git rtl_patch
+          cd kernel
+          # Apply the 5.6.4.5 aircrack-ng driver patch directly into the kernel source tree
+          git apply ../rtl_patch/DJY-Add-aircrack-ng-rtl88XXAU-5.6.4.5.patch || patch -p1 < ../rtl_patch/DJY-Add-aircrack-ng-rtl88XXAU-5.6.4.5.patch
+
+      - name: Configure Defconfig (Localversion, Module Signing & RTL88XXAU)
         run: |
           cd kernel
           DEFCONFIG_PATH="arch/arm64/configs/${{ github.event.inputs.defconfig }}"
@@ -70,6 +77,9 @@ jobs:
           # Set custom localversion to -iam_devu
           sed -i '/CONFIG_LOCALVERSION\>/d' "$DEFCONFIG_PATH"
           echo 'CONFIG_LOCALVERSION="-iam_devu"' >> "$DEFCONFIG_PATH"
+
+          # Enable the newly patched RTL88XXAU driver as a loadable module (=m)
+          echo 'CONFIG_88XXAU=m' >> "$DEFCONFIG_PATH"
 
       - name: Fix Touch Info Format Warning Safely
         run: |
@@ -90,7 +100,7 @@ jobs:
           git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9
           git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9 prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9
 
-      - name: Compile Main Kernel and Internal Modules
+      - name: Compile Kernel and Modules
         run: |
           cd kernel
           export TZ=UTC
@@ -115,35 +125,6 @@ jobs:
           
           mkdir -p dist_modules
           make O=out INSTALL_MOD_PATH=$PWD/dist_modules modules_install
-
-      - name: Build rtw88 Driver Out-of-Tree (lwfinger/rtw88)
-        run: |
-          # Clone lwfinger's rtw88 repository
-          git clone --depth=1 https://github.com/lwfinger/rtw88.git rtw88_src
-
-          cd kernel
-          CLANG_BIN="$PWD/prebuilts/clang/host/linux-x86/clang-r416183b/bin"
-          GCC64_BIN="$PWD/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin"
-          GCC32_BIN="$PWD/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9/bin"
-          
-          export PATH="$CLANG_BIN:$GCC64_BIN:$GCC32_BIN:$PATH"
-          export LD_LIBRARY_PATH="$PWD/prebuilts/clang/host/linux-x86/clang-r416183b/lib64:$LD_LIBRARY_PATH"
-
-          export ARCH=arm64
-          export SUBARCH=arm64
-          export CC=clang
-          export CLANG_TRIPLE=aarch64-linux-gnu-
-          export CROSS_COMPILE=aarch64-linux-android-
-          export CROSS_COMPILE_ARM32=arm-linux-androideabi-
-
-          KSRC="$PWD/out"
-          
-          cd ../rtw88_src
-          # Compile rtw88 out-of-tree against the built kernel build tree
-          make -j$(nproc --all) M=$PWD KSRC="$KSRC" ARCH=arm64 CC=clang CROSS_COMPILE=aarch64-linux-android-
-          
-          # Copy compiled rtw88 module files (.ko) to kernel staging modules folder
-          find . -name "*.ko" -exec cp {} ../kernel/dist_modules/ \;
 
       - name: Package with AnyKernel3
         run: |
