@@ -10,7 +10,7 @@ on:
       defconfig:
         description: 'Defconfig Name'
         required: true
-        default: 'gtowifi_eur_open_defconfig'
+        default: 'lineageos_gtowifi_defconfig'
 
 jobs:
   build:
@@ -67,7 +67,7 @@ jobs:
           git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9
           git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9 prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9
 
-      - name: Compile Kernel
+      - name: Compile Kernel and Modules
         run: |
           cd kernel
           export TZ=UTC
@@ -89,6 +89,11 @@ jobs:
 
           make -j$(nproc --all) O=out ${{ github.event.inputs.defconfig }}
           make -j$(nproc --all) O=out
+          make -j$(nproc --all) O=out modules
+          
+          # Install modules to staging directory
+          mkdir -p dist_modules
+          make O=out INSTALL_MOD_PATH=$PWD/dist_modules modules_install
 
       - name: Package with AnyKernel3
         run: |
@@ -101,7 +106,9 @@ jobs:
             cp kernel/out/arch/arm64/boot/Image.gz AnyKernel3/
           fi
 
-          find kernel/out -name "*.ko" -exec cp {} AnyKernel3/modules/ 2>/dev/null || true
+          # Copy compiled modules into AnyKernel3 vendor modules path
+          mkdir -p AnyKernel3/modules/vendor/lib/modules/
+          find kernel/dist_modules -name "*.ko" -exec cp {} AnyKernel3/modules/vendor/lib/modules/ \;
 
           cd AnyKernel3
           zip -r9 ../SDM429-Lineage20-Kernel.zip *
