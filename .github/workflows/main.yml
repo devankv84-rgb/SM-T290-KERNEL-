@@ -116,10 +116,10 @@ jobs:
           mkdir -p dist_modules
           make O=out INSTALL_MOD_PATH=$PWD/dist_modules modules_install
 
-      - name: Build RTL8821AU Out-of-Tree Driver (Archer T2U Plus)
+      - name: Build rtw88 Driver Out-of-Tree (lwfinger/rtw88)
         run: |
-          # Clone the modern RTL8812AU / RTL8821AU out-of-tree driver source
-          git clone --depth=1 https://github.com/morrownr/8812au-20210629.git rtl8812au
+          # Clone lwfinger's rtw88 repository
+          git clone --depth=1 https://github.com/lwfinger/rtw88.git rtw88_src
 
           cd kernel
           CLANG_BIN="$PWD/prebuilts/clang/host/linux-x86/clang-r416183b/bin"
@@ -138,11 +138,11 @@ jobs:
 
           KSRC="$PWD/out"
           
-          cd ../rtl8812au
-          # Compile driver against the built kernel tree
-          make -j$(nproc --all) KSRC="$KSRC" ARCH=arm64 CC=clang CROSS_COMPILE=aarch64-linux-android-
+          cd ../rtw88_src
+          # Compile rtw88 out-of-tree against the built kernel build tree
+          make -j$(nproc --all) M=$PWD KSRC="$KSRC" ARCH=arm64 CC=clang CROSS_COMPILE=aarch64-linux-android-
           
-          # Copy compiled driver module to dist_modules staging
+          # Copy compiled rtw88 module files (.ko) to kernel staging modules folder
           find . -name "*.ko" -exec cp {} ../kernel/dist_modules/ \;
 
       - name: Package with AnyKernel3
@@ -167,4 +167,3 @@ jobs:
         with:
           name: SDM429-Lineage20-Flashable-Kernel-Zip
           path: SDM429-Lineage20-Kernel.zip
-          
